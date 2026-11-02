@@ -7,6 +7,7 @@ PDF를 열고 · 고치고 · 서명하고 · 변환하고 · 줄이는 앱. 폰
 
 | 환경 | 방법 |
 |---|---|
+| **Windows 설치 파일 (가장 쉬움)** | [Releases](https://github.com/GCODE77/PDF/releases/latest)의 `PDF-Gongjakso-Setup.exe`를 받아 더블클릭 → 바탕화면·시작 메뉴 아이콘 생성, PDF 연결 프로그램으로도 사용 (`desktop/build.py`로 직접 빌드 가능) |
 | PC (지금 바로) | `실행.bat` 더블클릭 → 브라우저에서 http://localhost:8772 열림 (Python 필요) |
 | 폰 + PC 모두 | 이 폴더를 HTTPS 호스팅에 올리면 같은 주소로 접속하고 「홈 화면에 추가 / 앱 설치」 가능 (Netlify Drop, GitHub Pages, Cloudflare Pages 등 무료) |
 

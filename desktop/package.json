@@ -1,0 +1,24 @@
+{
+  "name": "pdf-gongjakso",
+  "productName": "PDF 공작소",
+  "version": "1.0.0",
+  "description": "PDF 편집·변환·서명·압축·OCR 데스크톱 앱",
+  "author": "GLORY KIM",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "devDependencies": { "electron": "^33.0.0", "electron-builder": "^25.1.8" },
+  "build": {
+    "appId": "kim.glory.pdfgongjakso",
+    "productName": "PDF 공작소",
+    "copyright": "© 2026 GLORY KIM. All rights reserved.",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "app/**/*"],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico", "signAndEditExecutable": false },
+    "fileAssociations": [{ "ext": "pdf", "name": "PDF 문서", "role": "Editor" }],
+    "nsis": {
+      "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "createStartMenuShortcut": true,
+      "shortcutName": "PDF 공작소", "artifactName": "PDF-Gongjakso-Setup.exe", "runAfterFinish": true, "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico", "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}

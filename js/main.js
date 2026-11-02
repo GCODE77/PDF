@@ -231,7 +231,9 @@ addEventListener('beforeunload', e => { if (S.pdf && S.dirty) { e.preventDefault
 
 // ---------- 앱 설치 · 다운로드 ----------
 const ZIP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-gongjakso-offline.zip';
-const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const SETUP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe';
+const isDesktopApp = /Electron/.test(navigator.userAgent);
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone || isDesktopApp;
 let deferredInstall = null;
 $('#instIc').innerHTML = icon('save'); $('#heroInstIc').innerHTML = icon('save');
 const showInstall = () => { const on = !standalone; $('#heroInstall').hidden = !on; $('#btnInstall').hidden = !on; };
@@ -250,8 +252,10 @@ async function installApp() {
         li('안드로이드(크롬):', '오른쪽 위 ⋮ 메뉴 → 「앱 설치」 또는 「홈 화면에 추가」'),
         li('PC(크롬·엣지):', '주소창 오른쪽의 설치 아이콘(⊕) → 「설치」')),
       h('hr'),
-      h('p', {}, h('b', {}, 'PC용 오프라인 파일 받기'), h('br'), h('span', { class: 'muted small' }, '압축을 풀고 「실행.bat」을 더블클릭하면 인터넷 없이도 열립니다. (설치 프로그램·파이썬 필요 없음)')),
-      h('a', { class: 'btn primary', href: ZIP_URL, target: '_blank', rel: 'noopener' }, 'ZIP 다운로드')],
+      h('p', {}, h('b', {}, 'Windows PC: 설치 파일 하나로 설치'), h('br'), h('span', { class: 'muted small' }, '내려받아 더블클릭하면 설치되고, 바탕화면·시작 메뉴에 아이콘이 생깁니다. PDF 파일을 더블클릭해 바로 열 수도 있습니다. (처음 실행 시 Windows 보호 창이 뜨면 「추가 정보 → 실행」)')),
+      h('div', { class: 'btnrow' },
+        h('a', { class: 'btn primary', href: SETUP_URL, target: '_blank', rel: 'noopener' }, 'Windows 설치 파일 받기 (.exe)'),
+        h('a', { class: 'btn', href: ZIP_URL, target: '_blank', rel: 'noopener' }, '설치 없이 쓰기 (ZIP)'))],
     actions: [{ label: '닫기' }],
   });
 }
@@ -263,6 +267,13 @@ home = initHome({
   openRecent,
   onSideAct: act => ({ open: openPicker, photo: () => imagesDialog(), merge: () => mergeDialog(), tools: () => showHome(true), install: installApp, help: menu.usage, about: menu.about })[act]?.(),
 });
+
+// ---------- 데스크톱 앱(설치 버전): PDF 더블클릭으로 열기 ----------
+if (window.electronAPI) {
+  const openExternal = async f => { if (f) await S.openBytes(new Uint8Array(f.data), f.name); };
+  window.electronAPI.onOpenFile(openExternal);
+  window.electronAPI.getInitialFile().then(openExternal);
+}
 
 // ---------- 시작 ----------
 await V.initViewer();

@@ -53,3 +53,6 @@ index.html · css/style.css · js/
 vendor/      pdf-lib(+암호화), pdf.js, tesseract.js(+한국어/영어 데이터), JSZip, Noto Sans KR
 sw.js · manifest.webmanifest · icons/   오프라인·설치(PWA)
 ```
+
+---
+© 2026 GLORY KIM. All rights reserved. (LICENSE, THIRD_PARTY_NOTICES.md 참고)

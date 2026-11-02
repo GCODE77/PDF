@@ -4,6 +4,9 @@ import * as D from './doc.js';
 import * as V from './viewer.js';
 import { initSide, togglePanel, showPanel, focusSearch } from './side.js';
 import { TOOLS, GROUPS, imagesDialog, mergeDialog } from './tools.js';
+import * as R from './recent.js';
+import { initHome } from './home.js';
+import { initMenu } from './menubar.js';
 
 const phone = V.isPhone;
 $$('[data-ic]').forEach(e => { e.innerHTML = icon(e.dataset.ic); });
@@ -11,6 +14,8 @@ $$('[data-ic-btn]').forEach(e => { e.insertAdjacentHTML('afterbegin', icon(e.dat
 $('#saveIc').innerHTML = icon('save'); $('#shareIc').innerHTML = icon('share');
 $('#heroOpenIc').innerHTML = icon('open'); $('#heroImgIc').innerHTML = icon('image');
 $('#btnOpen .ico').innerHTML = icon('open');
+$('#vList').innerHTML = icon('list'); $('#vGrid').innerHTML = icon('grid'); $('#hsIc').innerHTML = icon('search');
+let home = { refresh() {} };
 
 // ---------- 파일 열기 ----------
 S.openBytes = async (bytes, name) => {
@@ -18,7 +23,7 @@ S.openBytes = async (bytes, name) => {
   const b = busy('문서를 여는 중…');
   try {
     const ok = await D.openFromBytes(bytes, name);
-    if (ok) showEditor();
+    if (ok) { showEditor(); R.addRecent(S.name, S.bytes, S.pdf).then(() => home.refresh()); }
     return ok;
   } catch (e) { toast(e.message || 'PDF를 열 수 없습니다', 'err'); return false; }
   finally { b.close(); }
@@ -37,6 +42,7 @@ S.save = async () => {
     const bytes = await D.currentBytes();
     download(bytes, D.safeName(), 'application/pdf');
     S.dirty = false;
+    R.addRecent(D.safeName(), bytes, S.pdf).then(() => home.refresh());
     toast('저장했습니다. 다운로드 폴더를 확인하세요', 'ok');
   } catch (e) { toast(e.message || '저장하지 못했습니다', 'err'); }
   finally { b.close(); }
@@ -61,6 +67,7 @@ function showHome(scrollToGrid) {
   $('#tabHome').classList.toggle('on', !scrollToGrid); $('#tabTools').classList.toggle('on', !!scrollToGrid); $('#tabDoc').classList.remove('on');
   chrome(!!S.pdf);
   document.body.classList.remove('in-editor');
+  home.refresh();
   if (scrollToGrid) $('#gridWrap').scrollIntoView({ behavior: 'smooth' }); else $('#home').scrollTo({ top: 0 });
 }
 function showEditor() {
@@ -69,6 +76,18 @@ function showEditor() {
   chrome(true);
   document.body.classList.add('in-editor');
   requestAnimationFrame(() => V.fit(S.fit || 'auto', true));
+}
+function closeDoc() {
+  if (S.dirty && !confirm('저장하지 않은 변경 사항이 있습니다. 닫을까요?')) return;
+  if (S.pdf) D.killPdf(S.pdf);
+  Object.assign(S, { pdf: null, bytes: null, n: 0, overlays: {}, hist: [], fut: [], dirty: false, selected: null });
+  $('#pages').replaceChildren(); document.title = 'PDF 공작소';
+  showHome(false);
+}
+async function openRecent(it) {
+  const f = await R.getFile(it.id);
+  if (!f) { toast('용량이 커서 목록에만 남아 있습니다. 「PDF 열기」로 다시 선택해 주세요', 'err'); return; }
+  await S.openBytes(new Uint8Array(f.bytes), it.name);
 }
 $('#brand').onclick = () => showHome(false);
 $('#tabHome').onclick = () => showHome(false);
@@ -237,6 +256,13 @@ async function installApp() {
   });
 }
 $('#heroInstall').onclick = installApp; $('#btnInstall').onclick = installApp;
+
+// ---------- 홈 · 메뉴 막대 ----------
+const menu = initMenu({ openPicker, save: S.save, closeDoc, openRecent, showHome, showEditor, install: installApp, recent: [] });
+home = initHome({
+  openRecent,
+  onSideAct: act => ({ open: openPicker, photo: () => imagesDialog(), merge: () => mergeDialog(), tools: () => showHome(true), install: installApp, help: menu.usage, about: menu.about })[act]?.(),
+});
 
 // ---------- 시작 ----------
 await V.initViewer();

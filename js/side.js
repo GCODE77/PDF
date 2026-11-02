@@ -81,7 +81,7 @@ function markActive() {
   if (S.panelTab === 'pages') cells[S.curPage - 1]?.scrollIntoView({ block: 'nearest' });
 }
 
-async function quickOp(idx, op) {
+export async function quickOp(idx, op) {
   if (op === 'del' && S.n === 1) return toast('마지막 한 페이지는 삭제할 수 없습니다', 'err');
   const b = await D.flush();
   const plan = Array.from({ length: S.n }, (_, i) => ({ src: i, rot: 0 }));

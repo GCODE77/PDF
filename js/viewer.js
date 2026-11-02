@@ -123,7 +123,7 @@ export function scrollToPage(n, smooth = false) {
 
 // 보이는 페이지만 그리고 멀리 있는 페이지는 메모리에서 비움
 function kick() {
-  if (!tops.length) return;
+  if (!tops.length || !S.pdf) return;
   const top = viewerEl.scrollTop, vh = viewerEl.clientHeight;
   let cur = 0;
   for (let i = 0; i < tops.length; i++) {

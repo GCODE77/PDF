@@ -411,3 +411,8 @@ kbd{background:#f1f3f6;border:1px solid #cfd3d9;border-radius:6px;padding:2px 8p
   .rrow.head{display:none}
   .recent.grid{grid-template-columns:repeat(2,1fr)}
 }
+
+#updbar{flex:none;display:flex;align-items:center;gap:12px;padding:8px 16px;background:#e8f1fd;border-bottom:1px solid #b9d6fa;font-size:14px;z-index:24}
+#updbar .ui{color:var(--blue);display:grid}
+#updbar .ut{flex:1;min-width:0}
+@media (max-width:820px){#updbar{flex-wrap:wrap;gap:6px;padding:8px 12px}#updbar .ut{flex-basis:calc(100% - 40px)}}

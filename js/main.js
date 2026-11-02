@@ -7,6 +7,7 @@ import { TOOLS, GROUPS, imagesDialog, mergeDialog } from './tools.js';
 import * as R from './recent.js';
 import { initHome } from './home.js';
 import { initMenu } from './menubar.js';
+import { initUpdate } from './update.js';
 
 const phone = V.isPhone;
 $$('[data-ic]').forEach(e => { e.innerHTML = icon(e.dataset.ic); });
@@ -276,6 +277,7 @@ if (window.electronAPI) {
 }
 
 // ---------- 시작 ----------
+initUpdate();
 await V.initViewer();
 initSide();
 V.setTool('select');

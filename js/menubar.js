@@ -4,9 +4,10 @@ import * as D from './doc.js';
 import * as V from './viewer.js';
 import * as R from './recent.js';
 import { TOOLS, convertDialog, mergeDialog, imagesDialog, insertDialog, compressDialog, securityDialog, watermarkDialog, ocrDialog, cleanDialog, signDialog, stampDialog, insertImage } from './tools.js';
+import { VERSION, checkUpdate } from './update.js';
 import { togglePanel, showPanel, focusSearch, openOrganizer, quickOp } from './side.js';
 
-export const APP = { name: 'PDF 공작소', version: '1.0.0', owner: 'GLORY KIM', year: 2026 };
+export const APP = { name: 'PDF 공작소', version: VERSION, owner: 'GLORY KIM', year: 2026 };
 
 function aboutDialog() {
   modal({
@@ -123,7 +124,7 @@ export function initMenu(ctx) {
       { t: '단축키', f: keysDialog },
       '-',
       { t: '앱 설치 · 다운로드…', f: ctx.install },
-      { t: '최신 버전으로 새로고침', f: refreshApp },
+      { t: '업데이트 확인', f: () => checkUpdate({ manual: true }) },
       '-',
       { t: `${APP.name} 정보…`, f: aboutDialog },
     ] },

@@ -1,5 +1,5 @@
 // 오프라인 사용을 위한 서비스 워커: 앱 파일은 캐시 우선, 용량이 큰 OCR·글꼴은 처음 쓸 때 캐시
-const V = 'pdfstudio-v1';
+const V = 'pdfgongjakso-v2';
 const CORE = ['./', 'index.html', 'css/style.css', 'js/main.js', 'js/state.js', 'js/doc.js', 'js/viewer.js', 'js/side.js', 'js/tools.js', 'js/pdfcore.js',
   'vendor/pdf-lib.min.js', 'vendor/fontkit.umd.min.js', 'vendor/jszip.min.js', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'vendor/tess/tesseract.min.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];

@@ -6,10 +6,10 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>PDF 스튜디오</title>
+<title>PDF 공작소</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -71,8 +71,8 @@
   <!-- ===== 상단 바 ===== -->
   <header id="top">
     <button class="brand" id="brand" aria-label="홈으로">
-      <span class="logo"><svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#e1251b"/><path d="M9 7h10l5 5v13H9z" fill="#fff"/><path d="M19 7v5h5" fill="#f3b5b1"/><rect x="12" y="16" width="9" height="2" rx="1" fill="#e1251b"/><rect x="12" y="20" width="6" height="2" rx="1" fill="#e1251b"/></svg></span>
-      <span class="bname">PDF 스튜디오</span>
+      <span class="logo"><img src="icons/icon.svg" width="30" height="30" alt=""></span>
+      <span class="bname">PDF 공작소</span>
     </button>
     <nav class="tabs" aria-label="화면">
       <button id="tabHome" class="tab on">홈</button>
@@ -80,6 +80,7 @@
       <button id="tabDoc" class="tab" hidden><span id="docName">문서</span></button>
     </nav>
     <span class="grow"></span>
+    <button id="btnInstall" class="btn ghost hide-phone" hidden><span id="instIc"></span><span>앱 설치</span></button>
     <button id="btnOpen" class="btn" hidden><span class="ico"></span><span>다른 파일 열기</span></button>
     <button id="btnShare" class="btn ghost" hidden aria-label="공유"><span id="shareIc"></span><span class="lbl">공유</span></button>
     <button id="btnSave" class="btn primary cta" hidden><span id="saveIc"></span><span>저장</span></button>
@@ -95,13 +96,14 @@
           <button id="heroOpen" class="btn primary xl"><span id="heroOpenIc"></span><span>PDF 열기</span></button>
           <button id="heroImg" class="btn xl"><span id="heroImgIc"></span><span>사진으로 PDF 만들기</span></button>
         </div>
+        <button id="heroInstall" class="btn ghost" hidden><span id="heroInstIc"></span><span>앱으로 설치 · 다운로드</span></button>
         <p class="drop-hint">PDF를 이 화면에 끌어다 놓아도 열립니다</p>
       </div>
     </section>
     <section class="grid-wrap" id="gridWrap">
       <h2>도구</h2>
       <div id="cards" class="cards"></div>
-      <p class="foot">PDF 스튜디오 · 모든 처리는 브라우저 안에서 이루어집니다 (오프라인 사용 가능)</p>
+      <p class="foot">PDF 공작소 · 모든 처리는 브라우저 안에서 이루어집니다 (오프라인 사용 가능)</p>
     </section>
   </main>
 

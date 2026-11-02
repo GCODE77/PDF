@@ -1,6 +1,6 @@
 {
- "name": "PDF 스튜디오",
- "short_name": "PDF 스튜디오",
+ "name": "PDF 공작소",
+ "short_name": "PDF 공작소",
  "description": "PDF 편집·서명·변환·압축을 폰과 PC에서",
  "start_url": "./index.html",
  "scope": "./",

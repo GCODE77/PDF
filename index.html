@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="author" content="GLORY KIM">
+<meta name="copyright" content="© 2026 GLORY KIM">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -62,12 +64,14 @@
 <symbol id="i-list" viewBox="0 0 24 24"><path class="s" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
 <symbol id="i-tools" viewBox="0 0 24 24"><path class="s" d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></symbol>
 <symbol id="i-chev" viewBox="0 0 24 24"><path class="s" d="M6 9l6 6 6-6"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><path class="s" d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9z"/></symbol>
 <symbol id="i-open" viewBox="0 0 24 24"><path class="s" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
 <symbol id="i-lockshield" viewBox="0 0 24 24"><path class="s" d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path class="s" d="M9 12l2 2 4-4"/></symbol>
 <symbol id="i-right2" viewBox="0 0 24 24"><path class="s" d="M9 6l6 6-6 6"/></symbol>
 </svg>
 
 <div id="app">
+  <div id="menubar" role="menubar" aria-label="메뉴"></div>
   <!-- ===== 상단 바 ===== -->
   <header id="top">
     <button class="brand" id="brand" aria-label="홈으로">
@@ -80,6 +84,7 @@
       <button id="tabDoc" class="tab" hidden><span id="docName">문서</span></button>
     </nav>
     <span class="grow"></span>
+    <label class="hsearch"><span id="hsIc"></span><input id="hsearch" type="search" placeholder="파일·도구 검색" aria-label="파일·도구 검색" autocomplete="off"></label>
     <button id="btnInstall" class="btn ghost hide-phone" hidden><span id="instIc"></span><span>앱 설치</span></button>
     <button id="btnOpen" class="btn" hidden><span class="ico"></span><span>다른 파일 열기</span></button>
     <button id="btnShare" class="btn ghost" hidden aria-label="공유"><span id="shareIc"></span><span class="lbl">공유</span></button>
@@ -88,23 +93,49 @@
 
   <!-- ===== 홈 ===== -->
   <main id="home">
-    <section class="hero">
-      <div class="hero-in">
-        <h1>PDF, 한 곳에서 편하게</h1>
-        <p class="sub">열고 · 고치고 · 서명하고 · 변환하고 · 줄이세요. <br class="br">파일은 서버로 올라가지 않고 이 기기 안에서만 처리됩니다.</p>
-        <div class="hero-cta">
-          <button id="heroOpen" class="btn primary xl"><span id="heroOpenIc"></span><span>PDF 열기</span></button>
-          <button id="heroImg" class="btn xl"><span id="heroImgIc"></span><span>사진으로 PDF 만들기</span></button>
-        </div>
-        <button id="heroInstall" class="btn ghost" hidden><span id="heroInstIc"></span><span>앱으로 설치 · 다운로드</span></button>
-        <p class="drop-hint">PDF를 이 화면에 끌어다 놓아도 열립니다</p>
+    <div class="home-wrap">
+      <nav id="hside" aria-label="홈 메뉴">
+        <button class="hs on" data-f="recent">최근</button>
+        <button class="hs" data-f="star">별표 표시된 파일</button>
+        <div class="hs-h">파일</div>
+        <button class="hs" data-act="open">내 컴퓨터에서 열기</button>
+        <button class="hs" data-act="photo">사진으로 PDF 만들기</button>
+        <button class="hs" data-act="merge">파일 결합</button>
+        <div class="hs-h">도구</div>
+        <button class="hs" data-act="tools">모든 도구 보기</button>
+        <button class="hs" data-act="install">앱 설치 · 다운로드</button>
+        <button class="hs" data-act="help">사용 방법</button>
+        <button class="hs" data-act="about">정보</button>
+      </nav>
+      <div class="hmain">
+        <section class="hero">
+          <div class="hero-in">
+            <h1>PDF, 한 곳에서 편하게</h1>
+            <p class="sub">열고 · 고치고 · 서명하고 · 변환하고 · 줄이세요. <br class="br">파일은 서버로 올라가지 않고 이 기기 안에서만 처리됩니다.</p>
+            <div class="hero-cta">
+              <button id="heroOpen" class="btn primary xl"><span id="heroOpenIc"></span><span>PDF 열기</span></button>
+              <button id="heroImg" class="btn xl"><span id="heroImgIc"></span><span>사진으로 PDF 만들기</span></button>
+            </div>
+            <button id="heroInstall" class="btn ghost" hidden><span id="heroInstIc"></span><span>앱으로 설치 · 다운로드</span></button>
+            <p class="drop-hint">PDF를 이 화면에 끌어다 놓아도 열립니다</p>
+          </div>
+        </section>
+        <section id="recentSec" class="recent-sec" hidden>
+          <div class="rh"><h2 id="recentTitle">최근</h2>
+            <div class="views" role="group" aria-label="보기 방식">
+              <button data-v="list" aria-label="목록 보기" id="vList"></button>
+              <button data-v="grid" aria-label="격자 보기" id="vGrid"></button>
+            </div></div>
+          <div id="recent" class="recent"></div>
+          <div class="rclear"><button id="clearRecent" class="btn small ghost">최근 파일 지우기</button></div>
+        </section>
+        <section class="grid-wrap" id="gridWrap">
+          <h2>도구</h2>
+          <div id="cards" class="cards"></div>
+        </section>
+        <p class="foot">© 2026 GLORY KIM. All rights reserved.<br>PDF 공작소 · 모든 처리는 브라우저 안에서 이루어집니다 (오프라인 사용 가능)</p>
       </div>
-    </section>
-    <section class="grid-wrap" id="gridWrap">
-      <h2>도구</h2>
-      <div id="cards" class="cards"></div>
-      <p class="foot">PDF 공작소 · 모든 처리는 브라우저 안에서 이루어집니다 (오프라인 사용 가능)</p>
-    </section>
+    </div>
   </main>
 
   <!-- ===== 편집 화면 ===== -->

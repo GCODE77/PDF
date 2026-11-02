@@ -169,7 +169,7 @@ $('#btnRedo').onclick = () => D.redo();
 on('history', () => { $('#btnUndo').disabled = !S.hist.length; $('#btnRedo').disabled = !S.fut.length; });
 on('doc-loaded', () => { $('#btnUndo').disabled = !S.hist.length; $('#btnRedo').disabled = !S.fut.length; });
 on('doc-loaded', () => {
-  $('#docName').textContent = S.name; document.title = S.name + ' - PDF 스튜디오';
+  $('#docName').textContent = S.name; document.title = S.name + ' - PDF 공작소';
   V.setTool('select');
   if (!phone()) { ed.classList.toggle('tools-open', innerWidth >= 1180 && !ed.dataset.seen); ed.dataset.seen = '1'; }
 });
@@ -209,6 +209,34 @@ addEventListener('drop', async e => {
 });
 
 addEventListener('beforeunload', e => { if (S.pdf && S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- 앱 설치 · 다운로드 ----------
+const ZIP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-gongjakso-offline.zip';
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+let deferredInstall = null;
+$('#instIc').innerHTML = icon('save'); $('#heroInstIc').innerHTML = icon('save');
+const showInstall = () => { const on = !standalone; $('#heroInstall').hidden = !on; $('#btnInstall').hidden = !on; };
+showInstall();
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
+addEventListener('appinstalled', () => { deferredInstall = null; toast('설치되었습니다. 홈 화면·시작 메뉴에서 실행하세요', 'ok'); $('#heroInstall').hidden = true; $('#btnInstall').hidden = true; });
+async function installApp() {
+  if (deferredInstall) { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; return; }
+  const li = (b, t) => h('li', {}, h('b', {}, b + ' '), t);
+  modal({
+    title: '앱으로 설치 · 다운로드',
+    body: [
+      h('p', { class: 'muted' }, '설치하면 홈 화면·바탕화면에서 앱처럼 바로 열리고, 인터넷이 없어도 쓸 수 있습니다.'),
+      h('ul', { class: 'steps' },
+        li('아이폰/아이패드(사파리):', '아래 공유 버튼 → 「홈 화면에 추가」'),
+        li('안드로이드(크롬):', '오른쪽 위 ⋮ 메뉴 → 「앱 설치」 또는 「홈 화면에 추가」'),
+        li('PC(크롬·엣지):', '주소창 오른쪽의 설치 아이콘(⊕) → 「설치」')),
+      h('hr'),
+      h('p', {}, h('b', {}, 'PC용 오프라인 파일 받기'), h('br'), h('span', { class: 'muted small' }, '압축을 풀고 「실행.bat」을 더블클릭하면 인터넷 없이도 열립니다. (설치 프로그램·파이썬 필요 없음)')),
+      h('a', { class: 'btn primary', href: ZIP_URL, target: '_blank', rel: 'noopener' }, 'ZIP 다운로드')],
+    actions: [{ label: '닫기' }],
+  });
+}
+$('#heroInstall').onclick = installApp; $('#btnInstall').onclick = installApp;
 
 // ---------- 시작 ----------
 await V.initViewer();

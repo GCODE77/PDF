@@ -1,5 +1,4 @@
-@echo off
-rem PDF Studio local launcher (open http://localhost:8772 in a browser)
-cd /d "%~dp0"
-start "" http://localhost:8772/
-python -m http.server 8772
+@echo off
+rem PDF Gongjakso - offline launcher (no install needed)
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0server.ps1"

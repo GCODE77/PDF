@@ -10,6 +10,27 @@ import { analyzePage, editableLines } from './layout.js';
 const MM = 72 / 25.4;
 const inp = (attrs = {}) => h('input', { class: 'inp', ...attrs });
 
+// ---------- PDF ↔ 사진 (홈의 큰 버튼) ----------
+export function photoPdfDialog() {
+  let m;
+  const card = (title, sub, ic, fn) => h('button', { class: 'choice', onclick: () => { m.close(); fn(); } },
+    h('span', { class: 'cico', html: icon(ic) }), h('b', {}, title), h('small', {}, sub));
+  m = modal({
+    title: 'PDF ↔ 사진 변환',
+    body: h('div', { class: 'choices' },
+      card('사진 → PDF', '사진을 고르고 순서를 정해 PDF 한 개로 만듭니다 (폰은 카메라 촬영도 가능)', 'image', async () => {
+        const { imagesDialog } = await import('./tools.js');
+        const f = await pickFiles('image/*', true);
+        imagesDialog(f.length ? f : undefined);
+      }),
+      card('PDF → 사진', 'PDF의 쪽마다 PNG·JPG 사진으로 저장합니다 (여러 쪽은 ZIP)', 'convert', async () => {
+        const { convertDialog } = await import('./tools.js');
+        convertDialog('png');
+      })),
+    actions: [{ label: '닫기' }],
+  });
+}
+
 // ---------- 머리글 · 바닥글 · 쪽 번호 ----------
 export async function headerFooterDialog() {
   if (!await needDoc()) return;

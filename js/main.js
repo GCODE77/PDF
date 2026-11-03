@@ -3,7 +3,8 @@ import { S, $, $$, h, icon, on, emit, toast, busy, modal, pickFiles, readBytes, 
 import * as D from './doc.js';
 import * as V from './viewer.js';
 import { initSide, togglePanel, showPanel, focusSearch } from './side.js';
-import { TOOLS, PANEL, imagesDialog, mergeDialog } from './tools.js';
+import { TOOLS, PANEL, imagesDialog, mergeDialog, convertDialog } from './tools.js';
+import { photoPdfDialog } from './tools2.js';
 import * as R from './recent.js';
 import { initHome } from './home.js';
 import { initMenu } from './menubar.js';
@@ -13,7 +14,7 @@ const phone = V.isPhone;
 $$('[data-ic]').forEach(e => { e.innerHTML = icon(e.dataset.ic); });
 $$('[data-ic-btn]').forEach(e => { e.insertAdjacentHTML('afterbegin', icon(e.dataset.icBtn)); });
 $('#saveIc').innerHTML = icon('save'); $('#shareIc').innerHTML = icon('share');
-$('#heroOpenIc').innerHTML = icon('open'); $('#heroImgIc').innerHTML = icon('image');
+$('#heroOpenIc').innerHTML = icon('open'); $('#heroImgIc').innerHTML = icon('convert');
 $('#btnOpen .ico').innerHTML = icon('open');
 $('#vList').innerHTML = icon('list'); $('#vGrid').innerHTML = icon('grid'); $('#hsIc').innerHTML = icon('search');
 let home = { refresh() {} };
@@ -180,7 +181,7 @@ $('#tabHome').onclick = () => showHome(false);
 $('#tabTools').onclick = () => showHome(true);
 $('#heroOpen').onclick = openPicker;
 $('#btnOpen').onclick = openPicker;
-$('#heroImg').onclick = async () => { const f = await pickFiles('image/*', true); if (f.length) imagesDialog(f); else imagesDialog(); };
+$('#heroImg').onclick = () => photoPdfDialog();
 $('#btnSave').onclick = S.save;
 $('#btnShare').onclick = share;
 
@@ -396,7 +397,7 @@ function defaultAppDialog() {
 const menu = initMenu({ openPicker, save: S.save, closeDoc, openRecent, showHome, showEditor, install: installApp, defaultApp: defaultAppDialog, tabs, recent: [] });
 home = initHome({
   openRecent,
-  onSideAct: act => ({ open: openPicker, photo: () => imagesDialog(), merge: () => mergeDialog(), tools: () => showHome(true), install: installApp, help: menu.usage, about: menu.about })[act]?.(),
+  onSideAct: act => ({ open: openPicker, photo: () => photoPdfDialog(), merge: () => mergeDialog(), tools: () => showHome(true), install: installApp, help: menu.usage, about: menu.about })[act]?.(),
 });
 
 // ---------- 데스크톱 앱(설치 버전): PDF 더블클릭으로 열기 ----------

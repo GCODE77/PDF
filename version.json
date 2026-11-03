@@ -1,5 +1,5 @@
 {
- "version": "1.3.5",
- "notes": "재설치 안내 문구를 「확인」 버튼에 맞게 수정(한국어)",
+ "version": "1.3.6",
+ "notes": "홈의 큰 버튼을 「PDF ↔ 사진 변환」으로 통합",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

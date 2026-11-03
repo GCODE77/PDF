@@ -139,9 +139,29 @@ export async function flatten(bytes, overlays, imgs) {
     const page = pages[+pi];
     if (!page || !list.length) continue;
     const g = geom(page);
+    // 본문 수정·교정: 원본 글자를 PDF 내부에서 실제로 지운다 (실패해도 위에 덮는 방식으로 가려짐)
+    const kills = list.filter(o => (o.type === 'whiteout' && o.edit) || o.type === 'redact');
+    if (kills.length) { try { stripPageText(doc, page, kills.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h, by: o.type === 'whiteout' ? o.by : undefined, size: o.size }))); } catch (e) { console.warn('원본 글자 제거 실패', e); } }
     for (const o of list) {
       const ang = degrees(g.r);
-      if (o.type === 'whiteout' || o.type === 'highlight') {
+      if (o.type === 'highlight' && o.ls) {
+        const yy = o.ls === 'underline' ? o.y + o.h * 0.92 : o.y + o.h * 0.55;
+        const a = g.d2p(o.x, yy), c = g.d2p(o.x + o.w, yy);
+        page.drawLine({ start: { x: a[0], y: a[1] }, end: { x: c[0], y: c[1] }, thickness: Math.max(0.8, o.h * 0.07), color: hex(o.color) });
+      } else if (o.type === 'shape') {
+        const sw = o.sw || 2, col = hex(o.color);
+        if (o.shape === 'rect') { const [px, py] = g.d2p(o.x, o.y + o.h); page.drawRectangle({ x: px, y: py, width: o.w, height: o.h, rotate: ang, borderColor: col, borderWidth: sw }); }
+        else if (o.shape === 'ellipse') { const [cx, cy] = g.d2p(o.x + o.w / 2, o.y + o.h / 2); const sw90 = g.r % 180; page.drawEllipse({ x: cx, y: cy, xScale: (sw90 ? o.h : o.w) / 2, yScale: (sw90 ? o.w : o.h) / 2, borderColor: col, borderWidth: sw }); }
+        else {
+          const s0 = [o.fx ? o.x + o.w : o.x, o.fy ? o.y + o.h : o.y], e0 = [o.fx ? o.x : o.x + o.w, o.fy ? o.y : o.y + o.h];
+          const a = g.d2p(...s0), c = g.d2p(...e0);
+          page.drawLine({ start: { x: a[0], y: a[1] }, end: { x: c[0], y: c[1] }, thickness: sw, color: col, lineCap: LineCapStyle.Round });
+          if (o.shape === 'arrow') {
+            const an = Math.atan2(e0[1] - s0[1], e0[0] - s0[0]), Ln = Math.max(8, sw * 4);
+            for (const d of [-0.45, 0.45]) { const t = g.d2p(e0[0] - Ln * Math.cos(an + d), e0[1] - Ln * Math.sin(an + d)); page.drawLine({ start: { x: c[0], y: c[1] }, end: { x: t[0], y: t[1] }, thickness: sw, color: col, lineCap: LineCapStyle.Round }); }
+          }
+        }
+      } else if (o.type === 'whiteout' || o.type === 'highlight' || o.type === 'redact') {
         const [px, py] = g.d2p(o.x, o.y + o.h);
         page.drawRectangle({
           x: px, y: py, width: o.w, height: o.h, rotate: ang, color: hex(o.color),
@@ -487,4 +507,120 @@ export async function addInvisibleText(bytes, results) {
     }
   }
   return doc.save();
+}
+
+// ======================== 원본 글자 실제 제거 (본문 수정 · 교정) ========================
+// 콘텐츠 스트림을 읽어 지정한 영역에서 시작하는 글자 출력 명령(Tj/TJ/'/")을 지운다.
+const WS = ' \t\r\n\f\0';
+const DELIM = '()<>[]{}/%';
+function tokenize(str) {
+  const toks = [];
+  let i = 0;
+  const n = str.length;
+  while (i < n) {
+    const c = str[i];
+    if (WS.includes(c)) { i++; continue; }
+    const s = i;
+    if (c === '%') { while (i < n && str[i] !== '\n' && str[i] !== '\r') i++; continue; }
+    if (c === '(') {
+      let depth = 1; i++;
+      while (i < n && depth) { const d = str[i]; if (d === '\\') i += 2; else { if (d === '(') depth++; else if (d === ')') depth--; i++; } }
+      toks.push({ t: 'str', s, e: i }); continue;
+    }
+    if (c === '<' && str[i + 1] === '<') { i += 2; toks.push({ t: 'dict<', s, e: i }); continue; }
+    if (c === '>' && str[i + 1] === '>') { i += 2; toks.push({ t: 'dict>', s, e: i }); continue; }
+    if (c === '<') { i++; while (i < n && str[i] !== '>') i++; i++; toks.push({ t: 'str', s, e: i }); continue; }
+    if (c === '[') { i++; toks.push({ t: '[', s, e: i }); continue; }
+    if (c === ']') { i++; toks.push({ t: ']', s, e: i }); continue; }
+    if (c === '/') { i++; while (i < n && !WS.includes(str[i]) && !DELIM.includes(str[i])) i++; toks.push({ t: 'name', s, e: i }); continue; }
+    if (c === '{' || c === '}' || c === ')' || c === '>') { i++; continue; }
+    while (i < n && !WS.includes(str[i]) && !DELIM.includes(str[i])) i++;
+    const w = str.slice(s, i);
+    if (/^[-+]?(\d+\.?\d*|\.\d+)$/.test(w)) toks.push({ t: 'num', s, e: i, v: parseFloat(w) });
+    else {
+      toks.push({ t: 'op', s, e: i, v: w });
+      if (w === 'BI') {                               // 인라인 이미지: ID 뒤 이진 데이터는 건너뜀
+        const idp = str.indexOf('ID', i);
+        if (idp < 0) break;
+        let k = idp + 3, found = -1;
+        for (;;) { k = str.indexOf('EI', k); if (k < 0) break; if (WS.includes(str[k - 1] || ' ') && (k + 2 >= n || WS.includes(str[k + 2]))) { found = k; break; } k += 2; }
+        if (found < 0) break;
+        toks.push({ t: 'op', s: found, e: found + 2, v: 'EI' }); i = found + 2;
+      }
+    }
+  }
+  return toks;
+}
+const mul = (a, b) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3], a[4] * b[0] + a[5] * b[2] + b[4], a[4] * b[1] + a[5] * b[3] + b[5]];
+
+// rects: [{x,y,w,h, by?, size?}] 화면 좌표(pt). by 가 있으면 "그 줄"만, 없으면 영역 안의 모든 글자
+export function stripTextOps(src, rects, u2d) {
+  const toks = tokenize(src);
+  const out = [];
+  let last = 0, dropped = 0;
+  let ctm = [1, 0, 0, 1, 0, 0]; const stack = [];
+  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], tl = 0, rise = 0, tfs = 1;
+  let args = [];
+  const inRect = () => {
+    const m = mul([1, 0, 0, 1, 0, rise], mul(tm, ctm));
+    const [dx, dy] = u2d(m[4], m[5]);
+    return rects.some(r => r.by != null
+      ? Math.abs(dy - r.by) < Math.max(2, 0.32 * (r.size || 10)) && dx >= r.x - 2 && dx <= r.x + r.w + 2
+      : dx >= r.x - 1 && dx <= r.x + r.w + 1 && dy >= r.y - 1 && dy <= r.y + r.h + 1);
+  };
+  for (let ti = 0; ti < toks.length; ti++) {
+    const tk = toks[ti];
+    if (tk.t !== 'op') { args.push(tk); continue; }
+    const op = tk.v, nums = args.filter(a => a.t === 'num').map(a => a.v);
+    const startPos = args.length ? args[0].s : tk.s;
+    const drop = repl => { out.push(src.slice(last, startPos), repl); last = tk.e; dropped++; };
+    switch (op) {
+      case 'q': stack.push(ctm.slice()); break;
+      case 'Q': if (stack.length) ctm = stack.pop(); break;
+      case 'cm': if (nums.length === 6) ctm = mul(nums, ctm); break;
+      case 'BT': tm = [1, 0, 0, 1, 0, 0]; tlm = tm.slice(); break;
+      case 'Td': if (nums.length === 2) { tlm = mul([1, 0, 0, 1, nums[0], nums[1]], tlm); tm = tlm.slice(); } break;
+      case 'TD': if (nums.length === 2) { tl = -nums[1]; tlm = mul([1, 0, 0, 1, nums[0], nums[1]], tlm); tm = tlm.slice(); } break;
+      case 'Tm': if (nums.length === 6) { tm = nums.slice(); tlm = nums.slice(); } break;
+      case 'T*': tlm = mul([1, 0, 0, 1, 0, -tl], tlm); tm = tlm.slice(); break;
+      case 'TL': if (nums.length) tl = nums[0]; break;
+      case 'Ts': if (nums.length) rise = nums[0]; break;
+      case 'Tf': if (nums.length) tfs = nums[nums.length - 1]; break;
+      case 'Tj': case 'TJ': if (inRect()) drop(''); break;
+      case "'": tlm = mul([1, 0, 0, 1, 0, -tl], tlm); tm = tlm.slice(); if (inRect()) drop('T*'); break;
+      case '"': {
+        tlm = mul([1, 0, 0, 1, 0, -tl], tlm); tm = tlm.slice();
+        if (inRect()) drop(nums.length >= 2 ? `${nums[0]} Tw ${nums[1]} Tc T*` : 'T*');
+        break;
+      }
+      default: break;
+    }
+    void tfs;
+    args = [];
+  }
+  out.push(src.slice(last));
+  return { text: out.join(''), dropped };
+}
+
+const lat1 = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return s; };
+const unlat1 = s => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
+
+// 한 쪽의 글자 출력을 영역별로 지운다. 지운 개수를 돌려준다
+export function stripPageText(doc, page, rects) {
+  const b = page.getCropBox();
+  const r = ((page.getRotation().angle % 360) + 360) % 360;
+  const { x: x0, y: y0, width: W, height: H } = b;
+  const u2d = (ux, uy) => r === 0 ? [ux - x0, y0 + H - uy] : r === 90 ? [uy - y0, ux - x0] : r === 180 ? [x0 + W - ux, uy - y0] : [y0 + H - uy, x0 + W - ux];
+  const c = page.node.Contents();
+  let streams = [];
+  if (c instanceof PDFRawStream) streams = [c];
+  else if (c instanceof PDFArray) streams = c.asArray().map(ref => doc.context.lookup(ref)).filter(s => s instanceof PDFRawStream);
+  else return 0;
+  if (!streams.length) return 0;
+  const joined = streams.map(s => lat1(decodePDFRawStream(s).decode())).join('\n');
+  const res = stripTextOps(joined, rects, u2d);
+  if (!res.dropped) return 0;
+  const ref = doc.context.register(doc.context.flateStream(unlat1(res.text)));
+  page.node.set(PDFName.of('Contents'), ref);
+  return res.dropped;
 }

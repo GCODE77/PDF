@@ -1,6 +1,7 @@
 // 문서 상태(열기 · 이력 · 저장)
 import { S, emit, toast, busy, modal, h, fmtSize, baseName } from './state.js';
 import * as core from './pdfcore.js';
+import { addFormFields } from './core2.js';
 
 let pdfjs;
 export async function getPdfjs() {
@@ -16,7 +17,7 @@ export const killPdf = p => { try { (p.loadingTask?.destroy ? p.loadingTask.dest
 export async function openPdfjs(bytes, password) {
   const lib = await getPdfjs();
   return lib.getDocument({
-    data: bytes.slice(), password,
+    data: bytes.slice(), password, fontExtraProperties: true,
     cMapUrl: 'vendor/pdfjs/cmaps/', cMapPacked: true,
     standardFontDataUrl: 'vendor/pdfjs/standard_fonts/', isEvalSupported: false,
   }).promise;
@@ -54,7 +55,7 @@ export async function openFromBytes(bytes, name) {
   for (;;) {
     try {
       pdf = await lib.getDocument({
-        data: bytes.slice(), password: pw, cMapUrl: 'vendor/pdfjs/cmaps/', cMapPacked: true,
+        data: bytes.slice(), password: pw, fontExtraProperties: true, cMapUrl: 'vendor/pdfjs/cmaps/', cMapPacked: true,
         standardFontDataUrl: 'vendor/pdfjs/standard_fonts/', isEvalSupported: false,
       }).promise;
       break;
@@ -111,14 +112,19 @@ export async function applyBytes(bytes) {
 }
 
 // 편집 내용을 문서에 반영한 바이트(현재 화면 상태는 유지)
+async function flat() {
+  let b = await core.flatten(S.bytes, S.overlays, S.imgs);
+  if (Object.values(S.overlays).some(l => l.some(o => o.type === 'field'))) b = await addFormFields(b, S.overlays);
+  return b;
+}
 export async function currentBytes() {
   if (!hasOverlays()) return S.bytes;
-  return core.flatten(S.bytes, S.overlays, S.imgs);
+  return flat();
 }
 // 구조 변경 전에 호출: 편집 내용을 문서에 확정
 export async function flush() {
   if (!hasOverlays()) return S.bytes;
-  const b = await core.flatten(S.bytes, S.overlays, S.imgs);
+  const b = await flat();
   await applyBytes(b);
   return b;
 }

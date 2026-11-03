@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF 공작소</title>
+<meta http-equiv="refresh" content="2;url=/PDF/">
+<style>body{font:16px/1.6 sans-serif;text-align:center;padding:48px 20px;color:#222}a{color:#1473e6;font-weight:700}</style>
+</head>
+<body>
+<h2>주소를 찾지 못했습니다</h2>
+<p>PDF 공작소 첫 화면으로 이동합니다…</p>
+<p><a href="/PDF/">바로 가기: gcode77.github.io/PDF</a></p>
+<p style="color:#888;font-size:13px">주소 끝에 다른 글자가 붙었거나 대·소문자가 다르면(PDF는 대문자) 이 화면이 나옵니다.</p>
+<script>
+// 주소 끝에 한글·기호가 붙은 링크(예: .../PDF에서)도 첫 화면으로 보낸다
+if (/^\/pdf/i.test(location.pathname)) location.replace('/PDF/');
+</script>
+</body>
+</html>

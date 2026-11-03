@@ -552,8 +552,22 @@ export async function signDialog() {
     pad.addEventListener('pointermove', mv); pad.addEventListener('pointerup', up);
   });
   const hint = h('div', { class: 'padhint' }, '여기에 서명하세요');
-  const colors = h('div', { class: 'swatches' }, ['#111111', '#1473e6', '#e1251b'].map(c => h('button', { class: 'sw' + (c === penColor ? ' on' : ''), style: { background: c }, 'aria-label': '색 ' + c, onclick: e => { penColor = c; $$('.sw', colors).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on'); } })));
-  const drawPane = h('div', {}, h('div', { class: 'padwrap' }, pad, hint), h('div', { class: 'btnrow' }, colors, h('label', { class: 'chk' }, '색 ', h('input', { type: 'color', value: penColor, oninput: e => { penColor = e.target.value; } })), h('label', { class: 'chk' }, '굵기 ', h('input', { type: 'range', min: 1, max: 9, value: penW, oninput: e => { penW = +e.target.value; } })), h('button', { class: 'btn small', onclick: () => { ctxP().clearRect(0, 0, pad.width, pad.height); hint.hidden = false; } }, '지우기')));
+  const colors = h('div', { class: 'swatches' }, ['#111111', '#1473e6', '#e1251b'].map(c => h('button', { class: 'sw' + (c === penColor ? ' on' : ''), style: { background: c }, 'aria-label': '색 ' + c, onclick: e => { penColor = c; updPen(); $$('.sw', colors).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on'); } })));
+  function updPen() {
+    dot.style.width = dot.style.height = Math.max(2, penW * 1.8) + 'px'; dot.style.background = penColor;
+    wtxt.textContent = (Math.round(penW * 2) / 2) + 'pt'; range.value = penW;
+  }
+  const dot = h('span', { class: 'pdot' }), wtxt = h('b', { class: 'pw' });
+  const range = h('input', { type: 'range', class: 'pen-range', min: 1, max: 16, step: 0.5, value: penW, 'aria-label': '펜 굵기', oninput: e => { penW = +e.target.value; updPen(); } });
+  const stepPen = d => () => { penW = Math.max(1, Math.min(16, penW + d)); updPen(); };
+  const colorIn = h('input', { type: 'color', value: penColor, 'aria-label': '펜 색', oninput: e => { penColor = e.target.value; updPen(); } });
+  const penRow = h('div', { class: 'penrow' }, h('span', { class: 'lab small' }, '굵기'),
+    h('button', { class: 'icon-btn', 'aria-label': '가늘게', title: '가늘게', onclick: stepPen(-1), html: icon('minus') }), range,
+    h('button', { class: 'icon-btn', 'aria-label': '굵게', title: '굵게', onclick: stepPen(1), html: icon('plus') }),
+    h('span', { class: 'pdotbox', title: '굵기 미리보기' }, dot), wtxt);
+  const drawPane = h('div', {}, h('div', { class: 'padwrap' }, pad, hint),
+    h('div', { class: 'btnrow' }, colors, h('label', { class: 'chk' }, '색 ', colorIn), h('button', { class: 'btn small', onclick: () => { ctxP().clearRect(0, 0, pad.width, pad.height); hint.hidden = false; } }, '지우기')), penRow);
+  updPen();
 
   const name = h('input', { class: 'inp', placeholder: '이름을 입력하세요 (예: 홍길동, Gildong Hong)', maxlength: 30, 'aria-label': '서명에 쓸 이름' });
   const userFonts = [];

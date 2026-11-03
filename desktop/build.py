@@ -8,7 +8,7 @@ shutil.rmtree(os.path.join(out, 'app'), ignore_errors=True)
 os.makedirs(os.path.join(out, 'build'), exist_ok=True)
 skip = shutil.ignore_patterns('.git', 'desktop', 'candidates', '*.zip', '실행.bat', 'server.ps1', 'dist', 'node_modules')
 shutil.copytree(web, os.path.join(out, 'app'), ignore=skip)
-for f in ('main.js', 'preload.js', 'package.json'): shutil.copy(os.path.join(here, f), out)
+for f in ('main.js', 'preload.js', 'package.json', 'afterPack.js'): shutil.copy(os.path.join(here, f), out)
 Image.open(os.path.join(web, 'icons', 'icon-512.png')).save(os.path.join(out, 'build', 'icon.ico'), sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
 npm = 'npm.cmd' if os.name == 'nt' else 'npm'
 subprocess.check_call([npm, 'install', '--no-audit', '--no-fund'], cwd=out)

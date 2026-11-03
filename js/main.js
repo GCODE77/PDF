@@ -418,9 +418,12 @@ if ('launchQueue' in window) {
 }
 
 // ---------- 시작 ----------
-initUpdate();
-await V.initViewer();
-initSide();
-V.setTool('select');
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 window.__S = S;   // 디버깅용
+initUpdate();
+V.initViewer().then(() => {
+  initSide();
+  V.setTool('select');
+  window.__ready = true;
+  document.getElementById('bootfail')?.remove();
+}).catch(e => { console.error(e); window.__fatal && window.__fatal(e); });
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -13,6 +13,28 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/style.css">
+<script>
+// 앱이 시작되지 못하면(구형 브라우저·네트워크 차단 등) 이유를 화면에 보여 준다
+(function () {
+  var errs = [];
+  function show(note) {
+    if (window.__ready || document.getElementById('bootfail')) return;
+    var d = document.createElement('div');
+    d.id = 'bootfail';
+    d.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;color:#222;padding:24px;font:15px/1.6 sans-serif;overflow:auto';
+    d.innerHTML = '<h2 style="margin:0 0 8px">PDF 공작소를 시작하지 못했습니다</h2>' +
+      '<p>이 기기의 브라우저가 너무 오래되었거나, 인터넷 연결(또는 회사·학교 네트워크의 차단)로 파일을 받지 못했을 수 있습니다.</p>' +
+      '<ul><li>아이폰: 사파리, iOS 15 이상 권장 (설정 → 일반 → 소프트웨어 업데이트)</li><li>안드로이드: 크롬 최신 버전 (Play 스토어에서 Chrome 업데이트)</li><li>삼성 인터넷·카카오톡 안의 브라우저가 아닌 <b>크롬/사파리</b>로 열어 보세요</li><li>Wi-Fi를 끄고 LTE/5G로 다시 시도해 보세요</li></ul>' +
+      '<p style="color:#888;font-size:12px;word-break:break-all">' + (note || '') + ' ' + errs.join(' | ') + '<br>' + navigator.userAgent + '</p>' +
+      '<button onclick="location.reload()" style="padding:10px 18px;font-size:15px;border:0;border-radius:8px;background:#1473e6;color:#fff">다시 시도</button>';
+    document.body.appendChild(d);
+  }
+  window.__fatal = function (e) { errs.push(String((e && e.message) || e)); show('시작 오류'); };
+  window.addEventListener('error', function (e) { errs.push(String(e.message || e.type) + (e.filename ? ' @' + e.filename.split('/').pop() : '')); });
+  window.addEventListener('unhandledrejection', function (e) { errs.push('rej ' + String((e.reason && e.reason.message) || e.reason)); });
+  setTimeout(function () { show('12초 안에 시작되지 않음'); }, 12000);
+})();
+</script>
 </head>
 <body>
 

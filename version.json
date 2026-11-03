@@ -1,5 +1,5 @@
 {
- "version": "1.3.1",
- "notes": "무료 글꼴 38종 추가 (고딕·명조·손글씨·제목체·고정폭·영문)",
+ "version": "1.3.2",
+ "notes": "구형 폰 브라우저 호환(시작 오류 수정)·시작 실패 안내 화면",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

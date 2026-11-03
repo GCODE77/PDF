@@ -61,6 +61,7 @@ else {
     setTimeout(() => app.quit(), 600);
   });
   ipcMain.handle('initial-file', () => { const f = initial; initial = null; return f; });
+  app.setAppUserModelId('kim.glory.pdfgongjakso');
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     protocol.handle('app', async req => {

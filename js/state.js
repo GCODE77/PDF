@@ -114,9 +114,20 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ---------- 모달 ----------
 let modalCount = 0;
+const modalStack = [];
 export function modal({ title, body, actions = [], wide = false, onClose }) {
   const root = $('#modal-root');
-  const close = () => { wrap.remove(); modalCount--; if (!modalCount) root.hidden = true; onClose && onClose(); };
+  let closed = false;
+  const onKey = e => {
+    if (e.key === 'Escape' && modalStack[modalStack.length - 1] === api && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey, true);
+    const i = modalStack.indexOf(api); if (i >= 0) modalStack.splice(i, 1);
+    wrap.remove(); modalCount--; if (!modalCount) root.hidden = true; onClose && onClose();
+  };
   const foot = h('div', { class: 'm-foot' });
   const api = { close, body: null, foot, buttons: {} };
   for (const a of actions) {
@@ -144,6 +155,8 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   root.append(wrap);
   root.hidden = false;
   modalCount++;
+  modalStack.push(api);
+  document.addEventListener('keydown', onKey, true);
   setTimeout(() => (wrap.querySelector('[autofocus], input, select, textarea') || wrap.querySelector('.btn.primary'))?.focus(), 30);
   return api;
 }

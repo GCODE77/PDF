@@ -1,5 +1,5 @@
 // PDF 공작소 데스크톱 앱 (Electron) - (c) 2026 GLORY KIM
-const { app, BrowserWindow, protocol, Menu, shell, ipcMain, net } = require('electron');
+const { app, BrowserWindow, protocol, Menu, shell, ipcMain, net, dialog } = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -51,6 +51,13 @@ function createWindow() {
     if (url.startsWith('app://')) return { action: 'allow' };
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('will-prevent-unload', e => {
+    const r = dialog.showMessageBoxSync(win, {
+      type: 'question', buttons: ['저장하지 않고 닫기', '취소'], defaultId: 1, cancelId: 1, title: 'PDF 공작소',
+      message: '저장하지 않은 변경 사항이 있습니다.', detail: '지금 닫으면 편집한 내용이 사라집니다. 닫을까요?',
+    });
+    if (r === 0) e.preventDefault();          // 닫기 허용
   });
   win.loadURL('app://pdf/index.html');
   win.on('closed', () => { win = null; });

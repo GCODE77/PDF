@@ -493,3 +493,9 @@ html.dark body{background:#14161a}
 
 .msub{min-width:310px}
 .mi .mt{white-space:nowrap}
+
+.penrow{display:flex;align-items:center;gap:8px;margin-top:10px}
+.pen-range{flex:1;min-width:110px;accent-color:var(--blue);height:28px}
+.pdotbox{width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:#fff;flex:none}
+.pdot{border-radius:50%;display:block}
+.pw{min-width:40px;font-size:13px;text-align:right}

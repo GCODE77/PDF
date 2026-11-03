@@ -121,7 +121,7 @@ export function initMenu(ctx) {
       { t: '지우개 (가리기)', d: 1, f: mode('whiteout') },
       '-',
       { t: '페이지', d: 1, sub: () => [
-        { t: '정리…', f: () => openOrganizer() }, { t: '회전…', f: T2.rotateDialog }, { t: '삭제…', f: T2.deleteDialog }, { t: '삽입…', f: insertDialog },
+        { t: '정리…', f: () => openOrganizer() }, { t: '빈 페이지 찾아 삭제…', f: T2.blankPagesDialog }, { t: '회전…', f: T2.rotateDialog }, { t: '삭제…', f: T2.deleteDialog }, { t: '삽입…', f: insertDialog },
         { t: '추출…', f: extractDialog }, { t: '나누기…', f: T2.splitDialog }, { t: '자르기…', f: T2.cropDialog }, { t: '머리글·바닥글·쪽 번호…', f: T2.headerFooterDialog }] },
       '-',
       { t: '문자 인식(OCR)…', d: 1, f: doc(ocrDialog) },

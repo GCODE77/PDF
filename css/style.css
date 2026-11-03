@@ -508,3 +508,9 @@ html.dark body{background:#14161a}
 .cico{width:40px;height:40px;border-radius:10px;background:var(--blue-l);color:var(--blue);display:grid;place-items:center}
 .cico .ic{width:22px;height:22px}
 @media (max-width:560px){.choices{grid-template-columns:1fr}}
+
+.blankgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;max-height:46vh;overflow:auto;padding:4px;margin-top:8px}
+.bcell{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;border:1.5px solid #c4c9d0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px}
+.bcell input{position:absolute;left:8px;top:8px;width:18px;height:18px;z-index:2}
+.bcell canvas{width:100%;height:auto;border:1px solid #e1e4e8;background:#fff}
+.bcell:has(input:checked){border-color:var(--blue);background:var(--blue-l)}

@@ -1,5 +1,5 @@
 {
- "version": "1.3.0",
- "notes": "본문 수정에서 글꼴·크기·색·굵게·기울임·밑줄·취소선 편집",
+ "version": "1.3.1",
+ "notes": "무료 글꼴 38종 추가 (고딕·명조·손글씨·제목체·고정폭·영문)",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

@@ -145,11 +145,28 @@ export async function flatten(bytes, overlays, imgs) {
   const need = {}, kr = {};
   const keyOf = o => (o.font || 'noto') + '|' + (o.bold && hasBold(o.font || 'noto') ? 1 : 0);
   for (const list of Object.values(overlays)) for (const o of list) if (o.type === 'text') { const set = need[keyOf(o)] ||= new Set(); for (const ch of o.text) set.add(ch); }
+  const fbNeed = [new Set(), new Set()], fb = [], charsOf = new Map();
   for (const [k, set] of Object.entries(need)) {
     const [fid, b] = k.split('|');
     kr[k] = await embedFontById(doc, fid, b === '1', [...set].join(''));
     try { await measure(fid, b === '1'); } catch { /* 기준선은 기본값 사용 */ }
+    if (fid !== 'noto') {                       // 이 글꼴에 없는 글자(주로 한글)는 기본 글꼴로 대신 그린다
+      let cs; try { cs = new Set(kr[k].getCharacterSet()); } catch { cs = null; }
+      charsOf.set(kr[k], cs);
+      if (cs) for (const ch of set) if (!/\s/.test(ch) && !cs.has(ch.codePointAt(0))) fbNeed[b === '1' ? 1 : 0].add(ch);
+    }
   }
+  for (const k of [0, 1]) if (fbNeed[k].size) fb[k] = await embedKR(doc, !!k, [...fbNeed[k]].join(''));
+  const splitFont = (line, font, bold) => {
+    const cs = charsOf.get(font), alt = fb[bold ? 1 : 0];
+    if (!cs || !alt) return [{ text: line, font }];
+    const segs = [];
+    for (const ch of line) {
+      const f = (/\s/.test(ch) || cs.has(ch.codePointAt(0))) ? font : alt;
+      if (segs.length && segs[segs.length - 1].font === f) segs[segs.length - 1].text += ch; else segs.push({ text: ch, font: f });
+    }
+    return segs;
+  };
   for (const [pi, list] of Object.entries(overlays)) {
     const page = pages[+pi];
     if (!page || !list.length) continue;
@@ -194,13 +211,17 @@ export async function flatten(bytes, overlays, imgs) {
         o.text.split('\n').forEach((line, i) => {
           if (!line.trim()) return;
           const bx = o.x + pad, by = o.y + pad + i * LH * o.size + base * o.size;
-          const [px, py] = g.d2p(bx, by);
-          const opt = { x: px, y: py, size: o.size, font, color: hex(o.color), rotate: ang };
-          if (o.italic) opt.ySkew = degrees(12);
-          page.drawText(line, opt);
-          if (faux) { const [qx, qy] = g.d2p(bx + o.size * 0.025, by); page.drawText(line, { ...opt, x: qx, y: qy }); }
+          let cx = bx;
+          for (const sg of splitFont(line, font, o.bold && hasBold(fid))) {
+            const [px, py] = g.d2p(cx, by);
+            const opt = { x: px, y: py, size: o.size, font: sg.font, color: hex(o.color), rotate: ang };
+            if (o.italic) opt.ySkew = degrees(12);
+            page.drawText(sg.text, opt);
+            if (faux) { const [qx, qy] = g.d2p(cx + o.size * 0.025, by); page.drawText(sg.text, { ...opt, x: qx, y: qy }); }
+            cx += sg.font.widthOfTextAtSize(sg.text, o.size);
+          }
           if (o.underline || o.strike) {
-            const w = font.widthOfTextAtSize(line, o.size), th = Math.max(0.6, o.size * 0.06);
+            const w = cx - bx, th = Math.max(0.6, o.size * 0.06);
             for (const dy of [o.underline ? o.size * 0.14 : null, o.strike ? -o.size * 0.3 : null]) {
               if (dy == null) continue;
               const a = g.d2p(bx, by + dy), c = g.d2p(bx + w, by + dy);

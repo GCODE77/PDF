@@ -726,7 +726,7 @@ export const PANEL = [
   { label: 'PDF 만들기', icon: 'file', color: '#e1251b', kids: ['create', 'create-blank', 'create-text', 'create-paste'] },
   { label: '주석', icon: 'note', color: '#d4a017', kids: ['note', 'highlight', 'underline', 'strike', 'pen', 'shape', 'stamp'] },
   { id: 'merge' },
-  { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
+  { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'blankpages', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
   { id: 'compress' },
   { label: '교정', icon: 'redact', color: '#b91c1c', kids: ['redact', 'redact-find', 'redact-apply'] },
   { id: 'forms' },

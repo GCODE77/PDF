@@ -6,6 +6,7 @@ import * as D from './doc.js';
 import * as V from './viewer.js';
 import { needDoc, err, row, opt, pagesField, seg } from './tools.js';
 import { analyzePage, editableLines } from './layout.js';
+import { blankPagesDialog } from './blank.js';
 
 const MM = 72 / 25.4;
 const inp = (attrs = {}) => h('input', { class: 'inp', ...attrs });
@@ -437,6 +438,7 @@ export const TOOLS2 = [
   T('signreq', 'edit', '전자 서명 요청', 'sign', '#c026d3', '서명란을 넣고 파일을 보내 서명을 받습니다.', signRequestDialog),
   T('reviewreq', 'edit', '주석 요청하기', 'note', '#d4a017', '파일을 보내 검토 의견을 받습니다.', reviewRequestDialog),
   T('rotate', 'page', '페이지 회전', 'rotr', '#16a34a', '원하는 쪽을 돌립니다.', rotateDialog),
+  T('blankpages', 'page', '빈 페이지 찾아 삭제', 'trash', '#dc2626', '스캔 문서의 빈 쪽·파일철 구멍 자국을 자동으로 찾아 지웁니다.', blankPagesDialog),
   T('delpages', 'page', '페이지 삭제', 'trash', '#dc2626', '필요 없는 쪽을 지웁니다.', deleteDialog),
   T('split', 'page', 'PDF 나누기', 'split', '#0e7490', '여러 파일로 쪼갭니다.', splitDialog),
   T('crop', 'page', '쪽 자르기', 'crop', '#16a34a', '여백을 잘라 냅니다.', cropDialog),
@@ -448,4 +450,4 @@ export const TOOLS2 = [
   T('create-text', 'convert', '글로 PDF 만들기', 'file', '#e1251b', '입력하거나 붙여넣은 글을 PDF로.', createTextDialog, { doc: false }),
   T('create-paste', 'convert', '클립보드에서 만들기', 'image', '#e1251b', '복사한 이미지를 PDF로.', pasteImageDialog, { doc: false }),
 ];
-export { FIELD_KINDS };
+export { FIELD_KINDS, blankPagesDialog };

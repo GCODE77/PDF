@@ -192,7 +192,7 @@ async function runTool(t) {
   if (phone()) closeSheets();
   await t.run();
 }
-const homeOrder = ['sign', 'edittext', 'convert', 'create', 'note', 'merge', 'organize', 'compress', 'redact', 'forms', 'signreq', 'reviewreq', 'security', 'watermark', 'clean', 'ocr', 'stamp', 'extract', 'header', 'split'];
+const homeOrder = ['sign', 'edittext', 'convert', 'create', 'note', 'merge', 'organize', 'blankpages', 'compress', 'redact', 'forms', 'signreq', 'reviewreq', 'security', 'watermark', 'clean', 'ocr', 'stamp', 'extract', 'header', 'split'];
 $('#cards').append(...homeOrder.map(id => TOOLS.find(t => t.id === id)).map(t => h('article', { class: 'card' },
   h('div', { class: 'ch' }, h('span', { class: 'ci', style: { color: t.color, background: t.color + '18' }, html: icon(t.icon) }), h('h3', {}, t.home || t.label)),
   h('p', {}, t.desc),

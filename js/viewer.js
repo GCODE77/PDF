@@ -1,7 +1,8 @@
 // 뷰어(페이지 표시 · 확대/축소) + 편집 개체(텍스트·메모·서명·이미지·형광펜·펜·가리기)
-import { S, $, $$, h, icon, emit, on, toast, uid } from './state.js';
+import { S, $, $$, h, icon, emit, on, toast, uid, pickFiles } from './state.js';
 import { FS, LH, BASE, whiteToAlpha } from './pdfcore.js';
 import { editableLines, sampleRegion } from './layout.js';
+import { allFonts, cssFamily, loadDisplay, isLoaded, hasBold, measure, baseOf, addUserFont } from './textfonts.js';
 import * as D from './doc.js';
 
 const GAP = 14, PAD = 16;
@@ -333,6 +334,9 @@ function styleObj(el, o) {
   st.left = o.x * k + 'px'; st.top = o.y * k + 'px';
   if (o.type === 'text') {
     st.fontSize = o.size * k + 'px'; st.color = o.color; st.fontWeight = o.bold ? 700 : 400;
+    st.fontFamily = cssFamily(o.font, o.bold); st.fontStyle = o.italic ? 'italic' : 'normal';
+    st.textDecoration = [o.underline && 'underline', o.strike && 'line-through'].filter(Boolean).join(' ') || 'none';
+    if (o.font && o.font !== 'noto' && !isLoaded(o.font, o.bold)) loadDisplay(o.font, o.bold).then(() => styleObj(el, o)).catch(() => {});
     st.padding = (o.bg ? 4 : 2) * k + 'px'; st.background = o.bg || 'transparent';
     if (o.bg) st.border = Math.max(1, 0.5 * k) + 'px solid #e0c200';
     st.minWidth = o.size * 0.6 * k + 'px';
@@ -480,7 +484,7 @@ function bindPage(p, i) {
       e.preventDefault();
       D.snap();
       const note = S.tool === 'note';
-      const o = { id: uid(), type: 'text', x: Math.max(0, pt[0] - 4), y: Math.max(0, pt[1] - S.style.size * 0.7), size: S.style.size, color: S.style.color, bold: S.style.bold, text: '', bg: note ? S.style.note : null, w: 20, h: 20, _fresh: true };
+      const o = { id: uid(), type: 'text', x: Math.max(0, pt[0] - 4), y: Math.max(0, pt[1] - S.style.size * 0.7), size: S.style.size, color: S.style.color, bold: S.style.bold, font: S.style.font, text: '', bg: note ? S.style.note : null, w: 20, h: 20, _fresh: true };
       const el = addObj(i, o);
       setTool('select');
       setTimeout(() => editText(el, o), 0);
@@ -586,20 +590,24 @@ function startLineEdit(i, ln, key, el) {
   el.focus();
   const r = document.createRange(); r.selectNodeContents(el);
   const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
-  let cancelled = false;
-  const finish = () => {
+  let cancelled = false, confirmed = false;
+  const finish = async () => {
     el.removeEventListener('blur', finish);
     const txt = el.innerText.replace(/\s*[\r\n]+\s*/g, ' ').trim();
-    if (cancelled || txt === ln.text.trim()) { buildEditLayer(i); return; }
+    if (cancelled || (txt === ln.text.trim() && !confirmed)) { buildEditLayer(i); return; }
+    const fid = ln.font?.serif ? 'myeongjo' : 'noto';
+    try { await measure(fid, ln.bold); } catch { /* 기본 기준선 */ }
     D.snap();
     addObj(i, { id: uid(), type: 'whiteout', edit: true, src: key, x: ln.x - 1, y: ln.top, w: ln.w + 2, h: ln.h, by: ln.by, size: ln.size, color: sm.bg });
-    if (txt) addObj(i, { id: uid(), type: 'text', x: ln.x - 2, y: ln.by - 2 - BASE * ln.size, size: Math.round(ln.size * 10) / 10, color: sm.ink, bold: ln.bold, text: txt, bg: null, w: 20, h: 20 });
+    let made = null;
+    if (txt) { made = { id: uid(), type: 'text', x: ln.x - 2, y: ln.by - 2 - baseOf(fid, ln.bold && hasBold(fid)) * ln.size, size: Math.round(ln.size * 10) / 10, color: sm.ink, bold: ln.bold, italic: ln.italic, font: fid === 'noto' ? undefined : fid, text: txt, bg: null, w: 20, h: 20 }; addObj(i, made); }
     buildEditLayer(i);
+    if (made) select(made.id, i);
     toast(txt ? '글자를 고쳤습니다. 저장하면 PDF에 반영됩니다' : '글자를 지웠습니다', 'ok');
   };
   el.addEventListener('blur', finish);
   el.addEventListener('keydown', ev => {
-    if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+    if (ev.key === 'Enter') { ev.preventDefault(); confirmed = true; el.blur(); }
     else if (ev.key === 'Escape') { cancelled = true; el.blur(); }
     ev.stopPropagation();
   });
@@ -670,9 +678,23 @@ const HINTS = {
   shape: '문서 위에서 드래그해 그립니다 (사각형·원·선·화살표)',
   redact: '지울 영역(개인정보 등)을 드래그해 검은 상자로 표시하세요. 표시 후 「교정 적용」을 눌러야 영구 삭제됩니다',
   field: '입력칸이 들어갈 자리를 드래그하세요. 칸 종류는 「양식 만들기」에서 바꿀 수 있습니다',
-  edittext: '고칠 글자를 누르면 그 자리에서 바로 수정됩니다 (Enter 확정 · Esc 취소 · 글자를 모두 지우면 삭제)',
+  edittext: '고칠 글자를 누르세요. Enter로 확정하면 글꼴·크기·색·밑줄을 바꾸는 막대가 나타납니다 (Esc 취소 · 모두 지우면 삭제)',
 };
 
+// 글꼴 고르기 (내장 글꼴 + 글꼴 파일 불러오기)
+function fontPicker(cur, set) {
+  const sel = h('select', { class: 'inp small', 'aria-label': '글꼴', title: '글꼴' },
+    ...allFonts().map(f => h('option', { value: f.id, selected: f.id === cur }, f.label)),
+    h('option', { value: '__file' }, '+ 글꼴 파일 불러오기…'));
+  sel.onchange = async () => {
+    if (sel.value !== '__file') { set(sel.value); return; }
+    sel.value = cur;
+    const [f] = await pickFiles('.ttf,.otf,.woff,.woff2');
+    if (!f) return;
+    try { const d = await addUserFont(f); set(d.id); } catch { toast('글꼴 파일을 읽을 수 없습니다', 'err'); }
+  };
+  return sel;
+}
 const shapeKinds = (cur, set) => h('div', { class: 'seg inline' }, [['rect', '사각형'], ['ellipse', '원'], ['line', '선'], ['arrow', '화살표']].map(([k, t]) => h('button', { class: 'btn small' + (k === cur ? ' primary' : ''), onclick: () => set(k) }, t)));
 function swatches(list, cur, set) {
   return h('div', { class: 'swatches' }, list.map(c => h('button', { class: 'sw' + (c.toLowerCase() === (cur || '').toLowerCase() ? ' on' : ''), style: { background: c }, 'aria-label': '색 ' + c, onclick: () => set(c) })),
@@ -691,8 +713,12 @@ function updateBar() {
   const live = (fn) => (v) => { D.snap(); fn(v); if (el) styleObj(el, o); updateBar(); };
   if (o) {
     if (o.type === 'text') {
-      parts.push(stepper('글자 크기', o.size, 6, 96, 2, live(v => { o.size = v; S.style.size = v; })));
+      parts.push(fontPicker(o.font || 'noto', async id => { try { await loadDisplay(id, o.bold); } catch { toast('글꼴을 불러오지 못했습니다', 'err'); return; } live(v => { o.font = v === 'noto' ? undefined : v; S.style.font = o.font; })(id); }));
+      parts.push(stepper('글자 크기', o.size, 6, 200, 1, live(v => { o.size = v; S.style.size = v; })));
       parts.push(h('button', { class: 'tg' + (o.bold ? ' on' : ''), title: '굵게', onclick: live(() => { o.bold = !o.bold; S.style.bold = o.bold; }) }, h('b', {}, '가')));
+      parts.push(h('button', { class: 'tg' + (o.italic ? ' on' : ''), title: '기울임', onclick: live(() => { o.italic = !o.italic; }) }, h('i', {}, '가')));
+      parts.push(h('button', { class: 'tg' + (o.underline ? ' on' : ''), title: '밑줄', onclick: live(() => { o.underline = !o.underline; }) }, h('u', {}, '가')));
+      parts.push(h('button', { class: 'tg' + (o.strike ? ' on' : ''), title: '취소선', onclick: live(() => { o.strike = !o.strike; }) }, h('s', {}, '가')));
       parts.push(swatches(PALETTE, o.color, live(c => { o.color = c; S.style.color = c; })));
       if (o.bg) parts.push(swatches(['#fff3a0', '#ffd6e0', '#d4f5dd', '#d6ebff'], o.bg, live(c => { o.bg = c; S.style.note = c; })));
     } else if (o.type === 'highlight') parts.push(swatches(HL_PALETTE, o.color, live(c => { o.color = c; S.style.hl = c; })));
@@ -723,7 +749,8 @@ function updateBar() {
   } else if (HINTS[S.tool]) {
     parts.push(h('span', { class: 'hint' }, HINTS[S.tool]));
     if (S.tool === 'text' || S.tool === 'note') {
-      parts.push(stepper('글자 크기', S.style.size, 6, 96, 2, v => { S.style.size = v; updateBar(); }));
+      parts.push(fontPicker(S.style.font || 'noto', id => { S.style.font = id === 'noto' ? undefined : id; updateBar(); }));
+      parts.push(stepper('글자 크기', S.style.size, 6, 200, 1, v => { S.style.size = v; updateBar(); }));
       parts.push(swatches(PALETTE, S.style.color, c => { S.style.color = c; updateBar(); }));
     } else if (S.tool === 'highlight') parts.push(swatches(HL_PALETTE, S.style.hl, c => { S.style.hl = c; updateBar(); }));
     else if (S.tool === 'underline' || S.tool === 'strike') parts.push(swatches(PALETTE, S.style.ul || '#e1251b', c => { S.style.ul = c; updateBar(); }));

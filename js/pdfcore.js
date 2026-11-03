@@ -1,4 +1,5 @@
 // PDF 처리 코어 (pdf-lib / pdf.js 래퍼). 모든 처리는 브라우저 안에서만 이루어집니다.
+import { fontBytes, hasBold, measure, baseOf } from './textfonts.js';
 const L = window.PDFLib;
 const { PDFDocument, degrees, rgb, BlendMode, LineCapStyle, beginMarkedContent, endMarkedContent, decodePDFRawStream, PDFName, PDFRawStream, PDFArray, PDFDict } = L;
 
@@ -19,10 +20,10 @@ async function fontData(bold) {
   return fbytes[k];
 }
 // 사용한 글자만 남긴 TrueType 서브셋을 직접 만든다 (글리프 번호는 원본과 동일하게 유지)
-const fkCache = {};
-export async function subsetFont(bold, text) {
-  const data = await fontData(bold);
-  const fk = fkCache[bold ? 1 : 0] || (fkCache[bold ? 1 : 0] = window.fontkit.create(data));
+const fkMap = new WeakMap();
+export async function subsetFont(bold, text) { return subsetBytes(await fontData(bold), text); }
+export function subsetBytes(data, text) {
+  const fk = fkMap.get(data) || (fkMap.set(data, window.fontkit.create(data)), fkMap.get(data));
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const T = {};
   for (let i = 0, n = dv.getUint16(4); i < n; i++) {
@@ -106,6 +107,15 @@ export async function embedKR(doc, bold, text) {
   return doc.embedFont(await subsetFont(bold, text), { subset: false });
 }
 
+// 글꼴 id(textfonts.js)로 글꼴을 문서에 넣는다. 서브셋이 안 되는 글꼴(OTF 등)은 통째로 넣는다
+export async function embedFontById(doc, id, bold, text) {
+  if (!id || id === 'noto') return embedKR(doc, bold, text);
+  const data = await fontBytes(id, bold);
+  if (!doc.__fk) { doc.registerFontkit(window.fontkit); doc.__fk = true; }
+  try { return await doc.embedFont(subsetBytes(data, text), { subset: false }); }
+  catch { return doc.embedFont(data, { subset: false }); }
+}
+
 export const hex = c => {
   const m = /^#?([0-9a-f]{6})$/i.exec(c || '') || [0, '000000'];
   const n = parseInt(m[1], 16);
@@ -132,9 +142,14 @@ export async function flatten(bytes, overlays, imgs) {
   const doc = await PDFDocument.load(bytes);
   const pages = doc.getPages();
   const imgCache = {};
-  const need = [new Set(), new Set()], kr = [];
-  for (const list of Object.values(overlays)) for (const o of list) if (o.type === 'text') for (const ch of o.text) need[o.bold ? 1 : 0].add(ch);
-  for (const k of [0, 1]) if (need[k].size) kr[k] = await embedKR(doc, !!k, [...need[k]].join(''));
+  const need = {}, kr = {};
+  const keyOf = o => (o.font || 'noto') + '|' + (o.bold && hasBold(o.font || 'noto') ? 1 : 0);
+  for (const list of Object.values(overlays)) for (const o of list) if (o.type === 'text') { const set = need[keyOf(o)] ||= new Set(); for (const ch of o.text) set.add(ch); }
+  for (const [k, set] of Object.entries(need)) {
+    const [fid, b] = k.split('|');
+    kr[k] = await embedFontById(doc, fid, b === '1', [...set].join(''));
+    try { await measure(fid, b === '1'); } catch { /* 기준선은 기본값 사용 */ }
+  }
   for (const [pi, list] of Object.entries(overlays)) {
     const page = pages[+pi];
     if (!page || !list.length) continue;
@@ -169,7 +184,8 @@ export async function flatten(bytes, overlays, imgs) {
           blendMode: o.type === 'highlight' ? BlendMode.Multiply : BlendMode.Normal,
         });
       } else if (o.type === 'text') {
-        const font = kr[o.bold ? 1 : 0];
+        const fid = o.font || 'noto', font = kr[keyOf(o)], faux = o.bold && !hasBold(fid);
+        const base = baseOf(fid, o.bold && hasBold(fid));
         const pad = o.bg ? 4 : 2;
         if (o.bg) {
           const [px, py] = g.d2p(o.x, o.y + o.h);
@@ -177,8 +193,20 @@ export async function flatten(bytes, overlays, imgs) {
         }
         o.text.split('\n').forEach((line, i) => {
           if (!line.trim()) return;
-          const [px, py] = g.d2p(o.x + pad, o.y + pad + i * LH * o.size + BASE * o.size);
-          page.drawText(line, { x: px, y: py, size: o.size, font, color: hex(o.color), rotate: ang });
+          const bx = o.x + pad, by = o.y + pad + i * LH * o.size + base * o.size;
+          const [px, py] = g.d2p(bx, by);
+          const opt = { x: px, y: py, size: o.size, font, color: hex(o.color), rotate: ang };
+          if (o.italic) opt.ySkew = degrees(12);
+          page.drawText(line, opt);
+          if (faux) { const [qx, qy] = g.d2p(bx + o.size * 0.025, by); page.drawText(line, { ...opt, x: qx, y: qy }); }
+          if (o.underline || o.strike) {
+            const w = font.widthOfTextAtSize(line, o.size), th = Math.max(0.6, o.size * 0.06);
+            for (const dy of [o.underline ? o.size * 0.14 : null, o.strike ? -o.size * 0.3 : null]) {
+              if (dy == null) continue;
+              const a = g.d2p(bx, by + dy), c = g.d2p(bx + w, by + dy);
+              page.drawLine({ start: { x: a[0], y: a[1] }, end: { x: c[0], y: c[1] }, thickness: th, color: hex(o.color) });
+            }
+          }
         });
       } else if (o.type === 'image') {
         const d = imgs[o.img];

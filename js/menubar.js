@@ -21,7 +21,7 @@ function aboutDialog() {
       h('p', { class: 'copy' }, `© ${APP.year} ${APP.owner}. All rights reserved.`),
       h('details', {}, h('summary', {}, '오픈소스 라이선스'),
         h('ul', { class: 'oss' },
-          ['pdf-lib · MIT', 'pdf-lib-plus-encrypt · MIT', 'PDF.js (Mozilla) · Apache-2.0', 'Tesseract.js · Apache-2.0', 'JSZip · MIT', 'fontkit · MIT', 'Noto Sans KR (Google) · SIL OFL 1.1', '나눔 펜·붓글씨, 개구, Great Vibes, Dancing Script, Caveat · SIL OFL 1.1'].map(t => h('li', {}, t))))),
+          ['pdf-lib · MIT', 'pdf-lib-plus-encrypt · MIT', 'PDF.js (Mozilla) · Apache-2.0', 'Tesseract.js · Apache-2.0', 'JSZip · MIT', 'fontkit · MIT', 'Noto Sans KR (Google) · SIL OFL 1.1', '나눔고딕·나눔명조, 나눔 펜·붓글씨, 개구, Great Vibes, Dancing Script, Caveat · SIL OFL 1.1'].map(t => h('li', {}, t))))),
     actions: [{ label: '닫기', kind: 'primary' }],
   });
 }

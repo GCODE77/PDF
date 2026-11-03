@@ -1,5 +1,5 @@
 {
- "version": "1.2.0",
- "notes": "Word·PPT·엑셀 변환, 본문 글자 수정, 교정·양식·서명 글꼴, 1/2/4쪽 보기, 탭 닫기·이동",
+ "version": "1.2.1",
+ "notes": "자동 업데이트 설치 실패(파일 사용 중 오류) 수정",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

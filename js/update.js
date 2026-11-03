@@ -1,7 +1,7 @@
 // 새 버전 확인 · 알림 · 업데이트 (© 2026 GLORY KIM)
 import { S, $, h, toast, busy, icon } from './state.js';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.2.1';
 const REMOTE = 'https://gcode77.github.io/PDF/version.json';
 const RELEASES = 'https://github.com/GCODE77/PDF/releases/latest';
 const isDesktopApp = !!window.electronAPI;

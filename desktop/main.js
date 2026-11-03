@@ -75,59 +75,97 @@ else {
   // 새 버전 설치 파일을 내려받아 실행 (이 저장소의 릴리스 주소만 허용)
   let updating = false;
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  const logFile = () => path.join(app.getPath('userData'), 'update.log');
+  const log = msg => { try { fs.appendFileSync(logFile(), new Date().toISOString() + ' ' + msg + '\n'); } catch { /* 기록 실패는 무시 */ } };
+  // 오래된 임시 설치 파일 정리
+  const cleanOld = () => { try { for (const n of fs.readdirSync(os.tmpdir())) if (n.startsWith('pdfg-update-')) { const p = path.join(os.tmpdir(), n); if (Date.now() - fs.statSync(p).mtimeMs > 864e5) fs.rmSync(p, { recursive: true, force: true }); } } catch { /* 무시 */ } };
+  async function download(url, e, file) {
+    const res = await net.fetch(url);
+    if (!res.ok) throw new Error('서버가 파일을 주지 않았습니다 (HTTP ' + res.status + ')');
+    const total = +res.headers.get('content-length') || 0;
+    const out = fs.createWriteStream(file);
+    const reader = res.body.getReader();
+    let got = 0;
+    await new Promise((resolve, reject) => {
+      out.on('error', reject);
+      out.on('close', resolve);          // 'finish'가 아니라 파일 핸들이 완전히 닫힌 뒤(close)에 이어간다
+      (async () => {
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!out.write(value)) await new Promise(r => out.once('drain', r));
+            got += value.length;
+            if (total) e.sender.send('update-progress', got / total);
+          }
+          out.end();
+        } catch (err) { out.destroy(); reject(err); }
+      })();
+    });
+    if (total && got !== total) throw new Error('내려받은 파일이 완전하지 않습니다 (' + got + '/' + total + ')');
+    return got;
+  }
+  // 설치 파일 실행: 직접 실행 → 셸 실행 → cmd start 순서로 시도 (잠김은 기다렸다 재시도)
+  async function launch(file) {
+    const errs = [];
+    for (let i = 0; i < 40; i++) {
+      await wait(i ? 1000 : 300);
+      if (!fs.existsSync(file)) throw new Error('설치 파일이 사라졌습니다. 보안 프로그램(백신)이 지웠을 수 있습니다');
+      try {
+        const child = spawn(file, [], { detached: true, stdio: 'ignore' });
+        await new Promise((res, rej) => { child.once('error', rej); child.once('spawn', res); });
+        child.unref(); log('launch spawn ok'); return;
+      } catch (e2) {
+        errs.push(e2.code || String(e2));
+        if (e2.code !== 'EBUSY' && e2.code !== 'ETXTBSY' && e2.code !== 'EPERM') break;   // 잠김만 기다렸다 재시도
+      }
+    }
+    log('spawn failed: ' + errs.join(','));
+    const err = await shell.openPath(file);                       // 권한 상승이 필요한 경우 등
+    if (!err) { log('launch openPath ok'); return; }
+    errs.push(err);
+    try {
+      const c = spawn('cmd.exe', ['/c', 'start', '', file], { detached: true, stdio: 'ignore', windowsHide: true });
+      await new Promise((res, rej) => { c.once('error', rej); c.once('spawn', res); });
+      c.unref(); log('launch cmd start'); return;
+    } catch (e3) { errs.push(e3.code || String(e3)); }
+    throw new Error('설치 파일을 실행하지 못했습니다 (' + errs.join(' / ') + ')');
+  }
   ipcMain.handle('install-update', async (e, url) => {
     if (!/^https:\/\/github\.com\/GCODE77\/PDF\/releases\//.test(String(url))) throw new Error('허용되지 않은 주소');
     if (updating) throw new Error('이미 내려받는 중입니다');
     updating = true;
+    cleanOld();
+    let file = '';
     try {
-      const res = await net.fetch(url);
-      if (!res.ok) throw new Error('다운로드 실패 ' + res.status);
-      const total = +res.headers.get('content-length') || 0;
       // 매번 새 임시 폴더를 써서 이전 시도의 잠긴 파일과 겹치지 않게 한다
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdfg-update-'));
-      const file = path.join(dir, 'PDF-Gongjakso-Setup.exe');
-      const out = fs.createWriteStream(file);
-      const reader = res.body.getReader();
-      let got = 0;
-      await new Promise((resolve, reject) => {
-        out.on('error', reject);
-        out.on('close', resolve);          // 'finish'가 아니라 파일 핸들이 완전히 닫힌 뒤(close)에 이어간다
-        (async () => {
-          try {
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (!out.write(value)) await new Promise(r => out.once('drain', r));
-              got += value.length;
-              if (total) e.sender.send('update-progress', got / total);
-            }
-            out.end();
-          } catch (err) { out.destroy(); reject(err); }
-        })();
-      });
-      if (total && got !== total) throw new Error('내려받은 파일이 완전하지 않습니다');
-      if (process.env.PDFG_TEST_NO_LAUNCH) return { file, size: got };
-      // 내려받은 직후에는 백신(Windows Defender) 검사 등으로 파일이 잠겨 있을 수 있다.
-      // 열 수 있게 될 때까지 기다린 뒤 직접 실행한다 (shell.openPath 는 실패하면 윈도우 오류창을 띄워 버려서 쓰지 않는다)
-      let started = false, lastErr = '';
-      for (let i = 0; i < 40 && !started; i++) {
-        await wait(i ? 1000 : 300);
-        try {
-          const child = spawn(file, [], { detached: true, stdio: 'ignore' });
-          await new Promise((res, rej) => { child.once('error', rej); child.once('spawn', res); });
-          child.unref();
-          started = true;
-        } catch (e2) {
-          lastErr = e2.code || String(e2);
-          if (e2.code !== 'EBUSY' && e2.code !== 'ETXTBSY' && e2.code !== 'EPERM') break;   // 잠김(EBUSY)만 기다렸다 재시도
-        }
+      file = path.join(dir, 'PDF-Gongjakso-Setup.exe');
+      log('start v=' + app.getVersion() + ' url=' + url);
+      let got = 0, lastErr = null;
+      for (let t = 1; t <= 3; t++) {                               // 네트워크가 흔들리면 최대 3번
+        try { got = await download(url, e, file); lastErr = null; break; }
+        catch (err) { lastErr = err; log('download try ' + t + ' failed: ' + (err.message || err)); await wait(1500 * t); }
       }
-      if (!started) {
-        const err = await shell.openPath(file);       // 마지막 수단 (권한 상승이 필요한 경우 등)
-        if (err) throw new Error('설치 파일을 실행하지 못했습니다(' + lastErr + '): ' + err);
+      if (lastErr) throw new Error('내려받지 못했습니다: ' + String(lastErr.message || lastErr).replace(/^net::/, ''));
+      // 회사 보안 장치가 안내 페이지로 바꿔치기한 경우를 걸러낸다
+      const head = Buffer.alloc(2); const fd = fs.openSync(file, 'r'); fs.readSync(fd, head, 0, 2, 0); fs.closeSync(fd);
+      if (got < 5e6 || head.toString('latin1') !== 'MZ') throw new Error('내려받은 파일이 설치 파일이 아닙니다 (회사 보안 장치·프록시가 막았을 수 있음)');
+      if (process.env.PDFG_TEST_FAKE_EXE) fs.copyFileSync(process.env.PDFG_TEST_FAKE_EXE, file);   // 시험용: 실제 설치 대신 가짜 실행 파일
+      if (process.env.PDFG_TEST_NO_LAUNCH) return { file, size: got };
+      try { await launch(file); }
+      catch (err) {
+        // 자동 실행이 끝내 안 되면, 내려받은 설치 파일이 있는 폴더를 열어 직접 실행하게 한다
+        log('launch failed: ' + (err.message || err));
+        try { shell.showItemInFolder(file); } catch { /* 무시 */ }
+        throw new Error('MANUAL|' + (err.message || err) + '|' + file);
       }
       setTimeout(() => app.quit(), 800);
       return { started: true };
+    } catch (err) {
+      log('error: ' + (err.message || err));
+      if (!String(err.message).startsWith('MANUAL|')) throw new Error(String(err.message || err) + '|LOG|' + logFile());
+      throw err;
     } finally { updating = false; }
   });
   ipcMain.handle('open-default-apps', async () => { await registerAssociations(true); return shell.openExternal('ms-settings:defaultapps'); });

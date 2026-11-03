@@ -1,5 +1,5 @@
 {
- "version": "1.1.1",
- "notes": "설치 앱 아이콘 수정",
+ "version": "1.1.2",
+ "notes": "자동 업데이트 설치 오류 수정",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

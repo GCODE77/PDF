@@ -1,7 +1,7 @@
 // 새 버전 확인 · 알림 · 업데이트 (© 2026 GLORY KIM)
 import { S, $, h, toast, busy, icon } from './state.js';
 
-export const VERSION = '1.1.1';
+export const VERSION = '1.1.2';
 const REMOTE = 'https://gcode77.github.io/PDF/version.json';
 const RELEASES = 'https://github.com/GCODE77/PDF/releases/latest';
 const isDesktopApp = !!window.electronAPI;
@@ -27,7 +27,7 @@ async function applyUpdate(v) {
     const b = busy('새 버전을 내려받는 중… 완료되면 자동으로 설치됩니다');
     window.electronAPI.onUpdateProgress?.(p => b.set(null, p));
     try { await window.electronAPI.installUpdate(v.setup); }
-    catch (e) { b.close(); toast('업데이트에 실패했습니다. 릴리스 페이지에서 직접 받아 주세요', 'err'); window.open(RELEASES, '_blank'); }
+    catch (e) { b.close(); toast('자동 설치에 실패했습니다 (' + String(e.message || e).replace(/^Error invoking remote method [^:]+: Error: /, '').slice(0, 80) + '). 열리는 페이지에서 설치 파일을 받아 실행해 주세요', 'err'); window.open(v.setup || RELEASES, '_blank'); }
   } else if (onPages) { toast('새 버전을 불러옵니다…'); setTimeout(refreshWebApp, 400); }
   else window.open(RELEASES, '_blank');     // 압축파일(ZIP)로 쓰는 경우: 새 파일 받기
 }

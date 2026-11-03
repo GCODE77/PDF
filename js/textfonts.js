@@ -1,14 +1,48 @@
 // 문서 글자(텍스트 개체·본문 수정)용 글꼴: 화면 표시용 로딩, 저장용 바이트, 글꼴별 기준선 측정 (© 2026 GLORY KIM)
 const T = 'vendor/fonts/text/', G = 'vendor/fonts/sig/';
+const L = (id, label, group, r, b) => ({ id, label, group, r: T + r, b: b ? T + b : undefined });
 export const TEXT_FONTS = [
-  { id: 'noto', label: 'Noto Sans KR (고딕)', r: 'vendor/fonts/NotoSansKR-Regular.ttf', b: 'vendor/fonts/NotoSansKR-Bold.ttf' },
-  { id: 'gothic', label: '나눔고딕', r: T + 'NanumGothic-Regular.ttf', b: T + 'NanumGothic-Bold.ttf' },
-  { id: 'myeongjo', label: '나눔명조 (바탕체)', r: T + 'NanumMyeongjo-Regular.ttf', b: T + 'NanumMyeongjo-Bold.ttf' },
-  { id: 'pen', label: '나눔 펜 손글씨', r: G + 'NanumPenScript-Regular.ttf' },
-  { id: 'brush', label: '나눔 붓글씨', r: G + 'NanumBrushScript-Regular.ttf' },
-  { id: 'gaegu', label: '개구 손글씨', r: G + 'Gaegu-Regular.ttf' },
+  { id: 'noto', label: 'Noto Sans KR (기본 고딕)', group: '고딕', r: 'vendor/fonts/NotoSansKR-Regular.ttf', b: 'vendor/fonts/NotoSansKR-Bold.ttf' },
+  L('gothic', '나눔고딕', '고딕', 'NanumGothic-Regular.ttf', 'NanumGothic-Bold.ttf'),
+  L('myeongjo', '나눔명조 (바탕체)', '명조·바탕', 'NanumMyeongjo-Regular.ttf', 'NanumMyeongjo-Bold.ttf'),
+  { id: 'pen', label: '나눔 펜 손글씨', group: '손글씨', r: G + 'NanumPenScript-Regular.ttf' },
+  { id: 'brush', label: '나눔 붓글씨', group: '손글씨', r: G + 'NanumBrushScript-Regular.ttf' },
+  { id: 'gaegu', label: '개구 손글씨', group: '손글씨', r: G + 'Gaegu-Regular.ttf' },
+  L('gothica1', 'Gothic A1', '고딕', 'GothicA1-Regular.ttf', 'GothicA1-Bold.ttf'),
+  L('plexkr', 'IBM Plex Sans KR', '고딕', 'IBMPlexSansKR-Regular.ttf', 'IBMPlexSansKR-Bold.ttf'),
+  L('sunflower', '해바라기 (Sunflower)', '고딕', 'Sunflower-Medium.ttf', 'Sunflower-Bold.ttf'),
+  L('dohyeon', '도현체 (제목용)', '제목·디자인', 'DoHyeon-Regular.ttf'),
+  L('blackhan', '검은고딕 (제목용)', '제목·디자인', 'BlackHanSans-Regular.ttf'),
+  L('jua', '주아체', '제목·디자인', 'Jua-Regular.ttf'),
+  L('cutefont', '귀여운체', '제목·디자인', 'CuteFont-Regular.ttf'),
+  L('gugi', '구기체', '제목·디자인', 'Gugi-Regular.ttf'),
+  L('orbit', '오르빗', '제목·디자인', 'Orbit-Regular.ttf'),
+  L('songmyung', '송명체 (명조)', '명조·바탕', 'SongMyung-Regular.ttf'),
+  L('hahmlet', '함렛 (명조)', '명조·바탕', 'Hahmlet.ttf'),
+  L('poorstory', '푸어스토리 (손글씨)', '손글씨', 'PoorStory-Regular.ttf'),
+  L('singleday', '싱글데이 (손글씨)', '손글씨', 'SingleDay-Regular.ttf'),
+  L('yeonsung', '연성체 (손글씨)', '손글씨', 'YeonSung-Regular.ttf'),
+  L('eastsea', '동해독도 (붓글씨)', '손글씨', 'EastSeaDokdo-Regular.ttf'),
+  L('dokdo', '독도체 (붓글씨)', '손글씨', 'Dokdo-Regular.ttf'),
+  L('ncoding', '나눔고딕코딩', '고정폭', 'NanumGothicCoding-Regular.ttf', 'NanumGothicCoding-Bold.ttf'),
+  L('courier', 'Courier Prime', '고정폭', 'CourierPrime-Regular.ttf', 'CourierPrime-Bold.ttf'),
+  L('sourcecode', 'Source Code Pro', '고정폭', 'SourceCodePro.ttf'),
+  L('roboto', 'Roboto', '영문', 'Roboto.ttf'),
+  L('lato', 'Lato', '영문', 'Lato-Regular.ttf', 'Lato-Bold.ttf'),
+  L('opensans', 'Open Sans', '영문', 'OpenSans.ttf'),
+  L('montserrat', 'Montserrat', '영문', 'Montserrat.ttf'),
+  L('oswald', 'Oswald', '영문', 'Oswald.ttf'),
+  L('playfair', 'Playfair Display (세리프)', '영문', 'PlayfairDisplay.ttf'),
+  L('lora', 'Lora (세리프)', '영문', 'Lora.ttf'),
+  L('bebas', 'Bebas Neue (제목)', '영문', 'BebasNeue-Regular.ttf'),
+  L('abril', 'Abril Fatface (제목)', '영문', 'AbrilFatface-Regular.ttf'),
+  L('pacifico', 'Pacifico (필기체)', '영문', 'Pacifico-Regular.ttf'),
+  L('lobster', 'Lobster (필기체)', '영문', 'Lobster-Regular.ttf'),
+  L('indie', 'Indie Flower (손글씨)', '영문', 'IndieFlower-Regular.ttf'),
+  L('shadows', 'Shadows Into Light (손글씨)', '영문', 'ShadowsIntoLight.ttf'),
 ];
 export const userFonts = {};                       // 불러온 글꼴 { id: {id,label,buf} } (이번 실행 동안만 유지)
+export const GROUP_ORDER = ['고딕', '명조·바탕', '제목·디자인', '손글씨', '고정폭', '영문', '불러온 글꼴'];
 export const allFonts = () => [...TEXT_FONTS, ...Object.values(userFonts)];
 export const fontDef = id => allFonts().find(f => f.id === id) || TEXT_FONTS[0];
 export const hasBold = id => { const f = fontDef(id); return !!(f.b || f.buf2); };

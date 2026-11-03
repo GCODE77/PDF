@@ -2,7 +2,7 @@
 import { S, $, $$, h, icon, emit, on, toast, uid, pickFiles } from './state.js';
 import { FS, LH, BASE, whiteToAlpha } from './pdfcore.js';
 import { editableLines, sampleRegion } from './layout.js';
-import { allFonts, cssFamily, loadDisplay, isLoaded, hasBold, measure, baseOf, addUserFont } from './textfonts.js';
+import { allFonts, GROUP_ORDER, cssFamily, loadDisplay, isLoaded, hasBold, measure, baseOf, addUserFont } from './textfonts.js';
 import * as D from './doc.js';
 
 const GAP = 14, PAD = 16;
@@ -683,8 +683,10 @@ const HINTS = {
 
 // 글꼴 고르기 (내장 글꼴 + 글꼴 파일 불러오기)
 function fontPicker(cur, set) {
-  const sel = h('select', { class: 'inp small', 'aria-label': '글꼴', title: '글꼴' },
-    ...allFonts().map(f => h('option', { value: f.id, selected: f.id === cur }, f.label)),
+  const fonts = allFonts();
+  const groups = GROUP_ORDER.map(g => [g, fonts.filter(f => (f.group || '불러온 글꼴') === g)]).filter(([, l]) => l.length);
+  const sel = h('select', { class: 'inp small', 'aria-label': '글꼴', title: '글꼴 (영문 전용 글꼴은 한글이 기본 글꼴로 표시됩니다)' },
+    ...groups.map(([g, l]) => h('optgroup', { label: g }, ...l.map(f => h('option', { value: f.id, selected: f.id === cur }, f.label)))),
     h('option', { value: '__file' }, '+ 글꼴 파일 불러오기…'));
   sel.onchange = async () => {
     if (sel.value !== '__file') { set(sel.value); return; }

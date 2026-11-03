@@ -87,6 +87,7 @@ else {
       return { started: true };
     } finally { updating = false; }
   });
+  ipcMain.handle('open-default-apps', () => shell.openExternal('ms-settings:defaultapps'));
   ipcMain.handle('initial-file', () => { const f = initial; initial = null; return f; });
   app.setAppUserModelId('kim.glory.pdfgongjakso');
   app.whenReady().then(() => {

@@ -64,6 +64,22 @@
 <symbol id="i-list" viewBox="0 0 24 24"><path class="s" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
 <symbol id="i-tools" viewBox="0 0 24 24"><path class="s" d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></symbol>
 <symbol id="i-chev" viewBox="0 0 24 24"><path class="s" d="M6 9l6 6 6-6"/></symbol>
+<symbol id="i-shape" viewBox="0 0 24 24"><path class="s" d="M3 4h10v10H3zM15 10a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></symbol>
+<symbol id="i-underline" viewBox="0 0 24 24"><path class="s" d="M7 4v7a5 5 0 0 0 10 0V4M5 21h14"/></symbol>
+<symbol id="i-strike" viewBox="0 0 24 24"><path class="s" d="M4 12h16M16 6.5C15 5 13.6 4.5 12 4.5c-2.4 0-4 1.2-4 3 0 4 8 2.5 8 7 0 1.8-1.7 3-4 3-1.8 0-3.3-.6-4.2-2"/></symbol>
+<symbol id="i-crop" viewBox="0 0 24 24"><path class="s" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></symbol>
+<symbol id="i-split" viewBox="0 0 24 24"><path class="s" d="M12 3v18M4 7h5M4 12h5M4 17h5M15 7h5M15 12h5M15 17h5"/></symbol>
+<symbol id="i-header" viewBox="0 0 24 24"><path class="s" d="M4 3h16v18H4zM4 8h16M4 16h16"/></symbol>
+<symbol id="i-form" viewBox="0 0 24 24"><path class="s" d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h4"/></symbol>
+<symbol id="i-redact" viewBox="0 0 24 24"><path class="s" d="M4 7h16v4H4zM4 15h9M4 19h6"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path class="s" d="M3 11l18-8-8 18-2-8z"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><path class="s" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v6M12 7.5v.5"/></symbol>
+<symbol id="i-newdoc" viewBox="0 0 24 24"><path class="s" d="M14 3H6v18h12V7zM14 3v4h4M12 11v6M9 14h6"/></symbol>
+<symbol id="i-print" viewBox="0 0 24 24"><path class="s" d="M7 8V3h10v5M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></symbol>
+<symbol id="i-read" viewBox="0 0 24 24"><path class="s" d="M12 6v14M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2z"/></symbol>
+<symbol id="i-page1" viewBox="0 0 24 24"><path class="s" d="M7 3h10v18H7z"/></symbol>
+<symbol id="i-page2" viewBox="0 0 24 24"><path class="s" d="M3 5h8v14H3zM13 5h8v14h-8z"/></symbol>
+<symbol id="i-page4" viewBox="0 0 24 24"><path class="s" d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z"/></symbol>
 <symbol id="i-star" viewBox="0 0 24 24"><path class="s" d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9z"/></symbol>
 <symbol id="i-open" viewBox="0 0 24 24"><path class="s" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
 <symbol id="i-lockshield" viewBox="0 0 24 24"><path class="s" d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path class="s" d="M9 12l2 2 4-4"/></symbol>
@@ -81,7 +97,7 @@
     <nav class="tabs" aria-label="화면">
       <button id="tabHome" class="tab on">홈</button>
       <button id="tabTools" class="tab">도구</button>
-      <button id="tabDoc" class="tab" hidden><span id="docName">문서</span></button>
+      <div id="docTabs" class="doctabs" role="tablist" aria-label="열린 문서"></div>
     </nav>
     <span class="grow"></span>
     <label class="hsearch"><span id="hsIc"></span><input id="hsearch" type="search" placeholder="파일·도구 검색" aria-label="파일·도구 검색" autocomplete="off"></label>

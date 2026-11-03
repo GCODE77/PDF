@@ -1,9 +1,17 @@
 // 뷰어(페이지 표시 · 확대/축소) + 편집 개체(텍스트·메모·서명·이미지·형광펜·펜·가리기)
 import { S, $, $$, h, icon, emit, on, toast, uid } from './state.js';
-import { FS, LH, whiteToAlpha } from './pdfcore.js';
+import { FS, LH, BASE, whiteToAlpha } from './pdfcore.js';
+import { editableLines, sampleRegion } from './layout.js';
 import * as D from './doc.js';
 
 const GAP = 14, PAD = 16;
+// 페이지 표시 방식: 한 페이지 / 스크롤 / 두 페이지 / 두 페이지 스크롤 / 네 페이지(2×2) / 네 열 스크롤
+const LAYOUTS = { single: { cols: 1, per: 1, cont: false }, scroll: { cols: 1, cont: true }, two: { cols: 2, per: 2, cont: false }, twoscroll: { cols: 2, cont: true }, four: { cols: 2, per: 4, cont: false }, fourscroll: { cols: 4, cont: true } };
+const LY = () => LAYOUTS[S.layout?.mode] || LAYOUTS.scroll;
+const loadLayout = () => { try { const v = JSON.parse(localStorage.getItem('pdfg.layout') || 'null'); if (v && LAYOUTS[v.mode]) return { mode: v.mode, gap: v.gap !== false, cover: !!v.cover }; } catch { /* 기본값 */ } return { mode: 'scroll', gap: true, cover: false }; };
+const saveLayout = () => { try { localStorage.setItem('pdfg.layout', JSON.stringify(S.layout)); } catch { /* 저장 불가 */ } };
+const FIELD_LABEL = { text: '텍스트', check: '체크', radio: '선택', drop: '목록', sign: '서명' };
+const HLT = new Set(['highlight', 'underline', 'strike']);
 const PALETTE = ['#111111', '#e1251b', '#1473e6', '#1f9d55', '#f59e0b', '#7c3aed'];
 const HL_PALETTE = ['#ffe14d', '#7ee787', '#7cc7ff', '#ff9ec7', '#ffb26b'];
 const WO_PALETTE = ['#ffffff', '#f5f5f5', '#fff7d6', '#000000'];
@@ -18,9 +26,10 @@ export const isPhone = () => matchMedia('(max-width: 820px)').matches;
 // ======================== 초기화 ========================
 export async function initViewer() {
   viewerEl = $('#viewer'); pagesEl = $('#pages'); barEl = $('#objbar');
+  S.layout = loadLayout();
   pdfjsLib = await D.getPdfjs();
   on('doc-loaded', build);
-  on('overlays-changed', renderOverlays);
+  on('overlays-changed', () => { renderOverlays(); info.forEach((_, i) => buildEditLayer(i)); });
   viewerEl.addEventListener('scroll', () => requestAnimationFrame(kick), { passive: true });
   new ResizeObserver(() => { if (S.fit && S.pdf) fit(S.fit, true); else kick(); }).observe(viewerEl);
   viewerEl.addEventListener('pointerdown', e => {
@@ -30,6 +39,7 @@ export async function initViewer() {
   });
   addEventListener('pointerup', () => { pointerDown = false; });
   viewerEl.addEventListener('wheel', e => {
+    if (autoTimer && !e.ctrlKey) toggleAutoScroll(false);
     if (!e.ctrlKey) return;
     e.preventDefault();
     zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX, e.clientY);
@@ -60,7 +70,8 @@ async function build({ keepPage, fresh }) {
     p.textEl = h('div', { class: 'textLayer' });
     p.hlEl = h('div', { class: 'hlLayer' });
     p.ovEl = h('div', { class: 'ovl' });
-    p.el = h('div', { class: 'page', 'data-p': i }, p.canvas, p.textEl, p.hlEl, p.ovEl, h('span', { class: 'pno' }, String(i + 1)));
+    p.editEl = h('div', { class: 'editLayer' });
+    p.el = h('div', { class: 'page', 'data-p': i }, p.canvas, p.textEl, p.hlEl, p.ovEl, p.editEl, h('span', { class: 'pno' }, String(i + 1)));
     bindPage(p, i);
     pagesEl.append(p.el);
     info.push(p);
@@ -74,13 +85,30 @@ async function build({ keepPage, fresh }) {
   emit('pages-built');
 }
 
+function applyGrid() {
+  const L = LY(), st = pagesEl.style, gapPx = S.layout.gap ? GAP : 0;
+  st.gap = gapPx + 'px';
+  if (L.cols > 1) { st.display = 'grid'; st.gridTemplateColumns = `repeat(${L.cols}, max-content)`; st.justifyContent = 'center'; st.alignItems = 'start'; }
+  else { st.display = ''; st.gridTemplateColumns = ''; st.justifyContent = ''; st.alignItems = ''; }
+  if (info[0]) info[0].el.style.gridColumnStart = (L.cols === 2 && S.layout.cover) ? '2' : '';
+}
+function groupOf(n) {
+  const per = LY().per || 1;
+  if (per === 1) return [n];
+  if (per === 2 && S.layout.cover) { if (n === 1) return [1]; const s = 2 + Math.floor((n - 2) / 2) * 2; return [s, s + 1].filter(x => x <= S.n); }
+  const s = Math.floor((n - 1) / per) * per + 1;
+  return Array.from({ length: per }, (_, i) => s + i).filter(x => x <= S.n);
+}
+function applyVisibility() {
+  const grp = LY().cont ? null : groupOf(S.curPage);
+  info.forEach((p, i) => { p.el.style.display = (!grp || grp.includes(i + 1)) ? '' : 'none'; });
+}
+const measureTops = () => { tops = info.map(p => (p.el.style.display === 'none' ? -1 : p.el.offsetTop)); };
 function layout() {
   const k = scale();
-  let y = PAD; tops = [];
-  info.forEach(p => {
-    p.el.style.width = p.w * k + 'px'; p.el.style.height = p.h * k + 'px';
-    tops.push(y); y += p.h * k + GAP;
-  });
+  applyGrid(); applyVisibility();
+  info.forEach(p => { p.el.style.width = p.w * k + 'px'; p.el.style.height = p.h * k + 'px'; });
+  measureTops();
   $$('.obj', pagesEl).forEach(el => { const f = findObj(el.dataset.id); if (f) styleObj(el, f.o); });
   info.forEach(p => { p.gen++; p.task?.cancel?.(); p.rendered = false; p.rendering = false; p.textEl.replaceChildren(); });
   kick();
@@ -93,8 +121,9 @@ export function fit(mode, soft) {
   const p = info[Math.max(0, S.curPage - 1)] || info[0];
   const aw = viewerEl.clientWidth - (isPhone() ? 12 : 56), ah = viewerEl.clientHeight - 32;
   if (aw <= 0) return;
-  let z = aw / p.w / FS;
-  if (mode === 'page') z = Math.min(z, ah / p.h / FS);
+  const L = LY(), gapPx = S.layout.gap ? GAP : 0;
+  let z = (aw - (L.cols - 1) * gapPx) / (L.cols * p.w) / FS;
+  if (mode === 'page') { const rows = L.cont ? 1 : Math.ceil((L.per || 1) / L.cols); z = Math.min(z, (ah - (rows - 1) * gapPx) / (rows * p.h) / FS); }
   if (mode === 'auto' && !isPhone()) z = Math.min(z, 1.15);
   z = Math.max(0.2, Math.min(5, z));
   if (soft && Math.abs(z - S.zoom) < 0.002 && tops.length) { kick(); return; }
@@ -115,8 +144,26 @@ export function setZoom(z, cx, cy) {
 }
 export const zoomBy = (f, cx, cy) => setZoom(S.zoom * f, cx, cy);
 
+export function stepPage(dir) {
+  if (LY().cont) { scrollToPage(S.curPage + dir, true); return; }
+  const g = groupOf(S.curPage);
+  scrollToPage(dir > 0 ? g[g.length - 1] + 1 : g[0] - 1);
+}
+export const layoutState = () => ({ ...S.layout, ...LY() });
+function relayout() { if (!info.length) return; layout(); fit(LY().cont ? (S.fit || 'auto') : 'page'); scrollToPage(S.curPage); }
+export function setLayout(mode) { if (!LAYOUTS[mode]) return; S.layout.mode = mode; saveLayout(); relayout(); }
+export function setLayoutOpt(key, val) { S.layout[key] = val; saveLayout(); relayout(); }
+let autoTimer = null;
+export function toggleAutoScroll(on) {
+  const want = on ?? !autoTimer;
+  clearInterval(autoTimer); autoTimer = null;
+  if (want) { autoTimer = setInterval(() => { viewerEl.scrollTop += 1; }, 24); toast('자동 스크롤을 시작했습니다. 멈추려면 다시 선택하거나 휠을 움직이세요'); }
+  emit('autoscroll');
+  return !!autoTimer;
+}
 export function scrollToPage(n, smooth = false) {
   n = Math.max(1, Math.min(S.n, n));
+  if (!LY().cont) { S.curPage = n; applyVisibility(); measureTops(); viewerEl.scrollTo({ top: 0, left: 0 }); kick(); emit('page-changed'); return; }
   viewerEl.scrollTo({ top: Math.max(0, tops[n - 1] - 8), behavior: smooth ? 'smooth' : 'instant' });
   S.curPage = n; emit('page-changed');
 }
@@ -125,13 +172,16 @@ export function scrollToPage(n, smooth = false) {
 function kick() {
   if (!tops.length || !S.pdf) return;
   const top = viewerEl.scrollTop, vh = viewerEl.clientHeight;
-  let cur = 0;
-  for (let i = 0; i < tops.length; i++) {
-    if (tops[i] <= top + vh * 0.35) cur = i; else break;
+  if (LY().cont) {
+    let cur = 0;
+    for (let i = 0; i < tops.length; i++) {
+      if (tops[i] <= top + vh * 0.35) cur = i; else break;
+    }
+    if (S.curPage !== cur + 1) { S.curPage = cur + 1; emit('page-changed'); }
   }
-  if (S.curPage !== cur + 1) { S.curPage = cur + 1; emit('page-changed'); }
   const lo = top - vh * 1.2, hi = top + vh * 2.2;
   info.forEach((p, i) => {
+    if (tops[i] < 0) { if (p.rendered) release(p); return; }
     const t = tops[i], b = t + p.h * scale();
     if (b > lo && t < hi) { if (!p.rendered && !p.rendering) renderPage(i); }
     else if (p.rendered && (b < top - vh * 4 || t > top + vh * 5)) release(p);
@@ -164,6 +214,7 @@ async function renderPage(i) {
     if (g !== p.gen) return;
     p.rendered = true;
     drawHighlights(i);
+    if (S.tool === 'edittext') buildEditLayer(i);
   } catch (e) {
     if (e?.name !== 'RenderingCancelledException') console.warn('렌더링 실패', e);
   } finally {
@@ -187,6 +238,7 @@ export function drawHighlights(i) {
 export function redrawAllHighlights() { info.forEach((_, i) => drawHighlights(i)); }
 export function pagePtOffset(i) { return tops[i]; }
 export function scrollToRect(i, rect) {
+  if (!LY().cont && info[i]?.el.style.display === 'none') scrollToPage(i + 1);
   const k = scale();
   viewerEl.scrollTo({ top: Math.max(0, tops[i] + rect[1] * k - viewerEl.clientHeight * 0.3), behavior: 'smooth' });
 }
@@ -196,6 +248,7 @@ export function setTool(t) {
   S.tool = t;
   viewerEl.className = 'tool-' + t;
   if (t !== 'select') deselect();
+  info.forEach((_, i) => buildEditLayer(i));
   emit('tool');
 }
 
@@ -267,7 +320,7 @@ function mountObj(pi, o) {
   else if (o.type === 'ink') el = h('div', { class: 'obj oink' });
   else el = h('div', { class: 'obj o' + o.type });
   el.dataset.id = o.id; el.dataset.page = pi;
-  if (o.type === 'image' || o.type === 'whiteout' || o.type === 'highlight')
+  if (['image', 'whiteout', 'highlight', 'redact', 'field', 'shape'].includes(o.type))
     ['nw', 'ne', 'sw', 'se'].forEach(c => el.append(h('b', { class: 'hd ' + c, 'data-c': c })));
   info[pi].ovEl.append(el);
   styleObj(el, o);
@@ -286,7 +339,23 @@ function styleObj(el, o) {
     if (!el.isContentEditable) { o.w = el.offsetWidth / k; o.h = el.offsetHeight / k; }
   } else {
     st.width = o.w * k + 'px'; st.height = o.h * k + 'px';
-    if (o.type === 'whiteout' || o.type === 'highlight') st.background = o.color;
+    if (o.type === 'whiteout' || o.type === 'highlight' || o.type === 'redact') st.background = (o.type === 'highlight' && o.ls) ? 'transparent' : o.color;
+    if (o.type === 'highlight' && o.ls === 'underline') st.boxShadow = `inset 0 -${Math.max(1, 1.4 * k)}px 0 ${o.color}`;
+    if (o.type === 'highlight' && o.ls === 'strike') st.background = `linear-gradient(to bottom, transparent 47%, ${o.color} 47%, ${o.color} 53%, transparent 53%)`;
+    if (o.type === 'field') { st.border = '1.5px dashed #5258e4'; st.background = 'rgba(82,88,228,.10)'; el.dataset.label = (FIELD_LABEL[o.kind] || '칸') + ' · ' + (o.name || ''); }
+    if (o.type === 'shape') {
+      const sw = o.sw || 2, w = Math.max(1, o.w), hh = Math.max(1, o.h);
+      let inner = '';
+      const stroke = `fill="none" stroke="${o.color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`;
+      if (o.shape === 'rect') inner = `<rect x="${sw / 2}" y="${sw / 2}" width="${Math.max(0, w - sw)}" height="${Math.max(0, hh - sw)}" ${stroke}/>`;
+      else if (o.shape === 'ellipse') inner = `<ellipse cx="${w / 2}" cy="${hh / 2}" rx="${Math.max(0, w / 2 - sw / 2)}" ry="${Math.max(0, hh / 2 - sw / 2)}" ${stroke}/>`;
+      else {
+        const [x1, y1, x2, y2] = [o.fx ? w : 0, o.fy ? hh : 0, o.fx ? 0 : w, o.fy ? 0 : hh];
+        inner = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ${stroke}/>`;
+        if (o.shape === 'arrow') { const a = Math.atan2(y2 - y1, x2 - x1), L = Math.max(8, sw * 4); inner += `<path d="M${x2 - L * Math.cos(a - 0.45)} ${y2 - L * Math.sin(a - 0.45)} L${x2} ${y2} L${x2 - L * Math.cos(a + 0.45)} ${y2 - L * Math.sin(a + 0.45)}" ${stroke}/>`; }
+      }
+      el.innerHTML = `<svg viewBox="0 0 ${w} ${hh}" preserveAspectRatio="none" width="100%" height="100%" style="overflow:visible">${inner}</svg>`;
+    }
     if (o.type === 'image') el.firstChild.style.opacity = o.opacity ?? 1;
     if (o.type === 'ink') {
       const d = o.pts.map(([x, y], i) => (i ? 'L' : 'M') + (x - o.x).toFixed(2) + ' ' + (y - o.y).toFixed(2)).join(' ') + (o.pts.length === 1 ? ' l0.01 0' : '');
@@ -416,7 +485,7 @@ function bindPage(p, i) {
       setTool('select');
       setTimeout(() => editText(el, o), 0);
     } else if (S.tool === 'pen') drawInk(e, i, ov);
-    else if (S.tool === 'whiteout') drawRect(e, i, ov);
+    else if (['whiteout', 'redact', 'field', 'shape'].includes(S.tool)) drawRect(e, i, ov);
   });
 }
 
@@ -450,7 +519,8 @@ function drawInk(e, i, ov) {
 function drawRect(e, i, ov) {
   e.preventDefault();
   const k = scale(), r = ov.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
-  const box = h('div', { class: 'obj owhiteout draft', style: { left: sx + 'px', top: sy + 'px', background: S.style.wo, pointerEvents: 'none' } });
+  const tool0 = S.tool;
+  const box = h('div', { class: 'obj owhiteout draft', style: { left: sx + 'px', top: sy + 'px', background: tool0 === 'redact' ? '#000000aa' : tool0 === 'whiteout' ? S.style.wo : 'transparent', pointerEvents: 'none' } });
   ov.append(box);
   ov.setPointerCapture(e.pointerId);
   const mv = ev => {
@@ -462,29 +532,92 @@ function drawRect(e, i, ov) {
     box.remove();
     const x = ev.clientX - r.left, y = ev.clientY - r.top;
     const w = Math.abs(x - sx) / k, hh = Math.abs(y - sy) / k;
-    if (w < 4 || hh < 4) return;
+    const isLine = tool0 === 'shape' && (S.style.shape === 'line' || S.style.shape === 'arrow');
+    if (isLine ? (w < 4 && hh < 4) : (w < 4 || hh < 4)) return;
     D.snap();
-    const o = { id: uid(), type: 'whiteout', x: Math.min(sx, x) / k, y: Math.min(sy, y) / k, w, h: hh, color: S.style.wo };
+    const base = { id: uid(), x: Math.min(sx, x) / k, y: Math.min(sy, y) / k, w: Math.max(w, isLine ? 1 : w), h: Math.max(hh, isLine ? 1 : hh) };
+    let o;
+    if (tool0 === 'redact') o = { ...base, type: 'redact', color: '#000000' };
+    else if (tool0 === 'field') {
+      const kind = S.style.fieldKind || 'text';
+      const n = Object.values(S.overlays).flat().filter(q => q.type === 'field' && q.kind === kind).length + 1;
+      o = { ...base, type: 'field', kind, name: kind === 'radio' ? '선택그룹' : (FIELD_LABEL[kind] + n), options: '', multiline: false };
+    } else if (tool0 === 'shape') o = { ...base, type: 'shape', shape: S.style.shape || 'rect', color: S.style.ink, sw: S.style.inkW, fx: x < sx, fy: y < sy };
+    else o = { ...base, type: 'whiteout', color: S.style.wo };
     addObj(i, o);
     select(o.id, i);
-    setTool('select');
+    if (tool0 === 'whiteout' || tool0 === 'shape') setTool('select');
   };
   ov.addEventListener('pointermove', mv); ov.addEventListener('pointerup', up);
+}
+
+// ---------- 본문 수정: 원래 PDF의 글자를 그 자리에서 고치기 ----------
+async function buildEditLayer(i) {
+  const p = info[i]; if (!p) return;
+  p.editEl.replaceChildren();
+  if (S.tool !== 'edittext' || !p.rendered) return;
+  const g = p.gen;
+  try {
+    const page = await S.pdf.getPage(i + 1);
+    const lines = p.lines || (p.lines = await editableLines(page, pdfjsLib));
+    if (g !== p.gen || S.tool !== 'edittext') return;
+    const k = scale();
+    const done = (S.overlays[i] || []).filter(o => o.type === 'whiteout' && o.edit).map(o => o.src);
+    p.editEl.replaceChildren();
+    for (const ln of lines) {
+      const key = Math.round(ln.x) + ',' + Math.round(ln.by);
+      if (done.includes(key)) continue;
+      const el = h('div', { class: 'eline', title: '눌러서 수정' });
+      Object.assign(el.style, { left: (ln.x - 1) * k + 'px', top: ln.top * k + 'px', width: (ln.w + 2) * k + 'px', height: ln.h * k + 'px' });
+      el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); startLineEdit(i, ln, key, el); });
+      p.editEl.append(el);
+    }
+  } catch (e) { console.warn('편집 영역 만들기 실패', e); }
+}
+function startLineEdit(i, ln, key, el) {
+  const p = info[i], k = scale();
+  const cvk = p.canvas.width / p.w;
+  const sm = p.canvas.width ? sampleRegion(p.canvas, (ln.x - 1) * cvk, ln.top * cvk, (ln.w + 2) * cvk, ln.h * cvk) : { bg: '#ffffff', ink: '#000000' };
+  el.classList.add('editing');
+  el.contentEditable = 'plaintext-only';
+  if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+  el.textContent = ln.text;
+  Object.assign(el.style, { fontSize: ln.size * k + 'px', lineHeight: ln.h * k + 'px', color: sm.ink, background: sm.bg, fontWeight: ln.bold ? 700 : 400, fontStyle: ln.italic ? 'italic' : 'normal', minWidth: (ln.w + 2) * k + 'px', width: 'auto' });
+  el.focus();
+  const r = document.createRange(); r.selectNodeContents(el);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  let cancelled = false;
+  const finish = () => {
+    el.removeEventListener('blur', finish);
+    const txt = el.innerText.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+    if (cancelled || txt === ln.text.trim()) { buildEditLayer(i); return; }
+    D.snap();
+    addObj(i, { id: uid(), type: 'whiteout', edit: true, src: key, x: ln.x - 1, y: ln.top, w: ln.w + 2, h: ln.h, by: ln.by, size: ln.size, color: sm.bg });
+    if (txt) addObj(i, { id: uid(), type: 'text', x: ln.x - 2, y: ln.by - 2 - BASE * ln.size, size: Math.round(ln.size * 10) / 10, color: sm.ink, bold: ln.bold, text: txt, bg: null, w: 20, h: 20 });
+    buildEditLayer(i);
+    toast(txt ? '글자를 고쳤습니다. 저장하면 PDF에 반영됩니다' : '글자를 지웠습니다', 'ok');
+  };
+  el.addEventListener('blur', finish);
+  el.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+    else if (ev.key === 'Escape') { cancelled = true; el.blur(); }
+    ev.stopPropagation();
+  });
 }
 
 // ---------- 형광펜: 글자를 드래그해서 선택 ----------
 function initHighlightSelection() {
   let timer;
   document.addEventListener('selectionchange', () => {
-    if (S.tool !== 'highlight') return;
+    if (!HLT.has(S.tool)) return;
     clearTimeout(timer);
     timer = setTimeout(() => { if (!pointerDown) applyHighlight(); }, 450);
   });
-  addEventListener('pointerup', () => { if (S.tool === 'highlight') setTimeout(applyHighlight, 60); });
+  addEventListener('pointerup', () => { if (HLT.has(S.tool)) setTimeout(applyHighlight, 60); });
 }
 function applyHighlight() {
   const sel = getSelection();
-  if (S.tool !== 'highlight' || !sel.rangeCount || sel.isCollapsed) return;
+  if (!HLT.has(S.tool) || !sel.rangeCount || sel.isCollapsed) return;
   const rects = [...sel.getRangeAt(0).getClientRects()].filter(r => r.width > 2 && r.height > 2);
   if (!rects.length) return;
   const k = scale();
@@ -492,7 +625,7 @@ function applyHighlight() {
   info.forEach((p, i) => {
     const pr = p.el.getBoundingClientRect();
     rects.filter(r => r.bottom > pr.top && r.top < pr.bottom && r.right > pr.left && r.left < pr.right).forEach(r => {
-      made.push([i, { id: uid(), type: 'highlight', x: (r.left - pr.left) / k, y: (r.top - pr.top) / k, w: r.width / k, h: r.height / k, color: S.style.hl }]);
+      made.push([i, { id: uid(), type: 'highlight', x: (r.left - pr.left) / k, y: (r.top - pr.top) / k, w: r.width / k, h: r.height / k, color: S.tool === 'highlight' ? S.style.hl : (S.style.ul || '#e1251b'), ls: S.tool === 'highlight' ? undefined : S.tool }]);
     });
   });
   // 같은 줄은 중복 제거
@@ -501,7 +634,7 @@ function applyHighlight() {
   D.snap();
   uniq.forEach(([i, o]) => addObj(i, o));
   sel.removeAllRanges();
-  toast('형광펜을 칠했습니다');
+  toast(S.tool === 'highlight' ? '형광펜을 칠했습니다' : S.tool === 'underline' ? '밑줄을 그었습니다' : '취소선을 그었습니다');
 }
 
 // ---------- 서명 · 이미지 삽입 ----------
@@ -532,8 +665,15 @@ const HINTS = {
   pen: '손가락이나 마우스로 문서 위에 직접 그리세요',
   whiteout: '가릴 영역을 드래그하세요 (지우개: 흰색으로 덮기)',
   hand: '화면을 끌어서 이동합니다',
+  underline: '밑줄 칠 글자를 드래그해서 선택하세요',
+  strike: '취소선을 그을 글자를 드래그해서 선택하세요',
+  shape: '문서 위에서 드래그해 그립니다 (사각형·원·선·화살표)',
+  redact: '지울 영역(개인정보 등)을 드래그해 검은 상자로 표시하세요. 표시 후 「교정 적용」을 눌러야 영구 삭제됩니다',
+  field: '입력칸이 들어갈 자리를 드래그하세요. 칸 종류는 「양식 만들기」에서 바꿀 수 있습니다',
+  edittext: '고칠 글자를 누르면 그 자리에서 바로 수정됩니다 (Enter 확정 · Esc 취소 · 글자를 모두 지우면 삭제)',
 };
 
+const shapeKinds = (cur, set) => h('div', { class: 'seg inline' }, [['rect', '사각형'], ['ellipse', '원'], ['line', '선'], ['arrow', '화살표']].map(([k, t]) => h('button', { class: 'btn small' + (k === cur ? ' primary' : ''), onclick: () => set(k) }, t)));
 function swatches(list, cur, set) {
   return h('div', { class: 'swatches' }, list.map(c => h('button', { class: 'sw' + (c.toLowerCase() === (cur || '').toLowerCase() ? ' on' : ''), style: { background: c }, 'aria-label': '색 ' + c, onclick: () => set(c) })),
     h('label', { class: 'sw custom', title: '다른 색' }, h('input', { type: 'color', value: cur && cur.length === 7 ? cur : '#000000', oninput: e => set(e.target.value) })));
@@ -559,12 +699,24 @@ function updateBar() {
     else if (o.type === 'whiteout') {
       parts.push(swatches(WO_PALETTE, o.color, live(c => { o.color = c; S.style.wo = c; })));
       parts.push(h('button', { class: 'btn small', onclick: () => applyAllPages(o) }, '모든 페이지에 적용'));
+    } else if (o.type === 'redact') {
+      parts.push(h('button', { class: 'btn small primary', onclick: () => import('./tools2.js').then(m => m.redactApplyDialog()) }, '교정 적용 (영구 삭제)'));
+    } else if (o.type === 'field') {
+      parts.push(h('select', { class: 'inp small', 'aria-label': '칸 종류', onchange: e => live(v => { o.kind = v; S.style.fieldKind = v; })(e.target.value) }, ...Object.entries(FIELD_LABEL).map(([k, t]) => h('option', { value: k, selected: k === o.kind }, t))));
+      parts.push(h('input', { class: 'inp small', value: o.name || '', placeholder: '칸 이름', 'aria-label': '칸 이름', onchange: e => live(v => { o.name = v; })(e.target.value) }));
+      if (o.kind === 'drop') parts.push(h('input', { class: 'inp small', value: o.options || '', placeholder: '항목: 예, 아니오', 'aria-label': '목록 항목', onchange: e => live(v => { o.options = v; })(e.target.value) }));
+    } else if (o.type === 'shape') {
+      parts.push(shapeKinds(o.shape, live(v => { o.shape = v; S.style.shape = v; })));
+      parts.push(swatches(PALETTE, o.color, live(c => { o.color = c; S.style.ink = c; })));
+      parts.push(stepper('굵기', o.sw, 1, 12, 1, live(v => { o.sw = v; S.style.inkW = v; })));
     } else if (o.type === 'ink') {
       parts.push(swatches(PALETTE, o.color, live(c => { o.color = c; S.style.ink = c; })));
       parts.push(stepper('굵기', o.sw, 1, 20, 1, live(v => { o.sw = v; S.style.inkW = v; })));
     } else if (o.type === 'image') {
       parts.push(h('label', { class: 'rng' }, '투명도', h('input', { type: 'range', min: 10, max: 100, value: (o.opacity ?? 1) * 100, oninput: e => { o.opacity = e.target.value / 100; styleObj(el, o); }, onchange: () => { S.dirty = true; } })));
       parts.push(h('button', { class: 'btn small', onclick: () => removeImgBg(o) }, '흰 배경 지우기'));
+      const grow = k => live(() => { const cx = o.x + o.w / 2, cy = o.y + o.h / 2; o.w *= k; o.h *= k; o.x = cx - o.w / 2; o.y = cy - o.h / 2; });
+      parts.push(h('button', { class: 'btn small', title: '작게', onclick: grow(0.9) }, '작게'), h('button', { class: 'btn small', title: '크게', onclick: grow(1.1) }, '크게'));
     }
     parts.push(h('button', { class: 'icon-btn', title: '복제', 'aria-label': '복제', onclick: () => duplicate(f), html: icon('copy') }));
     parts.push(h('button', { class: 'icon-btn danger', title: '삭제', 'aria-label': '삭제', onclick: removeSelected, html: icon('trash') }));
@@ -574,6 +726,12 @@ function updateBar() {
       parts.push(stepper('글자 크기', S.style.size, 6, 96, 2, v => { S.style.size = v; updateBar(); }));
       parts.push(swatches(PALETTE, S.style.color, c => { S.style.color = c; updateBar(); }));
     } else if (S.tool === 'highlight') parts.push(swatches(HL_PALETTE, S.style.hl, c => { S.style.hl = c; updateBar(); }));
+    else if (S.tool === 'underline' || S.tool === 'strike') parts.push(swatches(PALETTE, S.style.ul || '#e1251b', c => { S.style.ul = c; updateBar(); }));
+    else if (S.tool === 'shape') {
+      parts.push(shapeKinds(S.style.shape || 'rect', v => { S.style.shape = v; updateBar(); }));
+      parts.push(swatches(PALETTE, S.style.ink, c => { S.style.ink = c; updateBar(); }));
+      parts.push(stepper('굵기', S.style.inkW, 1, 12, 1, v => { S.style.inkW = v; updateBar(); }));
+    } else if (S.tool === 'redact') parts.push(h('button', { class: 'btn small primary', onclick: () => import('./tools2.js').then(m => m.redactApplyDialog()) }, '교정 적용 (영구 삭제)'), h('button', { class: 'btn small', onclick: () => import('./tools2.js').then(m => m.redactSearchDialog()) }, '검색해서 표시'));
     else if (S.tool === 'pen') {
       parts.push(swatches(PALETTE, S.style.ink, c => { S.style.ink = c; updateBar(); }));
       parts.push(stepper('굵기', S.style.inkW, 1, 20, 1, v => { S.style.inkW = v; updateBar(); }));

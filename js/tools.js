@@ -4,14 +4,17 @@ import * as core from './pdfcore.js';
 import * as D from './doc.js';
 import * as V from './viewer.js';
 import { openOrganizer } from './side.js';
+import * as X from './exporters.js';
+import { TOOLS2 } from './tools2.js';
+import { SIG_FONTS, ensureFont, cssFamily, fontFromFile, canListLocal, listLocalFonts } from './sigfonts.js';
 
-const needDoc = async () => S.pdf || await S.ensureDoc();
-const err = e => { console.error(e); toast(e.message || '처리 중 오류가 발생했습니다', 'err'); };
-const row = (label, ...c) => h('div', { class: 'row' }, h('label', { class: 'lab' }, label), h('div', { class: 'ctl' }, c));
-const opt = (v, t) => h('option', { value: v }, t);
+export const needDoc = async () => S.pdf || await S.ensureDoc();
+export const err = e => { console.error(e); toast(e.message || '처리 중 오류가 발생했습니다', 'err'); };
+export const row = (label, ...c) => h('div', { class: 'row' }, h('label', { class: 'lab' }, label), h('div', { class: 'ctl' }, c));
+export const opt = (v, t) => h('option', { value: v }, t);
 
 // 페이지 범위 선택 위젯
-function pagesField(label = '대상 페이지') {
+export function pagesField(label = '대상 페이지') {
   const sel = h('select', { class: 'inp' }, opt('all', `전체 (${S.n}쪽)`), opt('cur', `현재 페이지 (${S.curPage}쪽)`), opt('custom', '직접 입력'));
   const inp = h('input', { class: 'inp', placeholder: '예: 1-3, 5, 8-', hidden: true });
   sel.onchange = () => { inp.hidden = sel.value !== 'custom'; if (!inp.hidden) inp.focus(); };
@@ -26,7 +29,7 @@ function pagesField(label = '대상 페이지') {
     },
   };
 }
-const seg = (name, items, val, onchange) => {
+export const seg = (name, items, val, onchange) => {
   const box = h('div', { class: 'seg', role: 'radiogroup' });
   items.forEach(([v, t, d]) => {
     const i = h('input', { type: 'radio', name, value: v, checked: v === val, onchange: () => onchange?.(v) });
@@ -108,21 +111,39 @@ function showText(text) {
 // ======================== 변환 ========================
 export async function convertDialog(preset = 'png') {
   if (!await needDoc()) return;
-  const fmt = seg('fmt', [['png', '사진 PNG', '선명한 이미지'], ['jpg', '사진 JPG', '용량이 작음'], ['txt', '텍스트 TXT', '글자만 추출'], ['docx', 'Word DOCX', '글자만 추출']], preset, v => sync(v));
+  const KINDS = [
+    ['png', '사진 PNG', '선명한 이미지'], ['jpg', '사진 JPG', '용량이 작음'],
+    ['docx', 'Word (DOCX)', '글·표·그림'], ['pptx', 'PowerPoint (PPTX)', '쪽마다 슬라이드'], ['xlsx', '엑셀 (XLSX)', '표·글을 칸으로'],
+    ['txt', '텍스트 (TXT)', '글만 추출'], ['html', '웹 페이지 (HTML)', '글·표·그림'], ['md', '마크다운 (MD)', '제목·표 구조'], ['csv', '표만 (CSV)', '표를 엑셀용으로'],
+  ];
+  const fmt = seg('fmt', KINDS, preset, v => sync(v));
+  fmt.el.classList.add('seg-grid');
   const pages = pagesField('변환할 페이지');
   const dpi = h('select', { class: 'inp' }, opt(110, '보통 (110dpi · 빠름)'), opt(150, '고화질 (150dpi)'), opt(220, '최고화질 (220dpi)'));
   dpi.value = 150;
   const ocr = h('input', { type: 'checkbox', checked: true });
-  const imgRow = row('화질', dpi), txtRow = row('옵션', h('label', { class: 'chk' }, ocr, '글자가 없는 페이지는 OCR로 인식 (한국어+영어)'));
+  const pics = h('input', { type: 'checkbox', checked: true });
+  const imgRow = row('화질', dpi);
+  const txtRow = row('옵션', h('label', { class: 'chk' }, ocr, '글자가 없는 페이지는 OCR로 인식 (한국어+영어)'), h('label', { class: 'chk' }, pics, '그림 포함'));
   const note = h('p', { class: 'muted small' });
+  const NOTES = {
+    docx: '글꼴·크기·색·정렬을 최대한 살리고, 선이 있는 표는 Word 표로, 그림은 그대로 옮깁니다.',
+    pptx: '쪽마다 슬라이드 한 장으로 만들고, 글상자·표·그림을 원래 위치에 배치합니다.',
+    xlsx: '쪽마다 시트 한 장. 표는 칸으로, 숫자는 숫자 칸으로 옮기고 합친 칸도 유지합니다.',
+    txt: '줄·문단을 복원한 글만 저장합니다. 표는 탭으로 구분됩니다.',
+    html: '글·표·그림을 담은 웹 페이지 한 파일로 저장합니다.',
+    md: '글 크기로 제목을 구분하고 표는 마크다운 표로 만듭니다.',
+    csv: '문서의 모든 표를 쉼표로 구분해 저장합니다 (엑셀에서 바로 열림).',
+  };
   function sync(v) {
     const img = v === 'png' || v === 'jpg';
     imgRow.hidden = !img; txtRow.hidden = img;
-    note.textContent = img ? '여러 페이지는 ZIP 한 개로 묶어 저장합니다.' : 'PDF의 글자 위치를 기준으로 줄·문단을 복원합니다. 표·그림은 Word로 옮겨지지 않습니다.';
+    pics.parentElement.hidden = !(v === 'docx' || v === 'pptx' || v === 'html');
+    note.textContent = img ? '여러 페이지는 ZIP 한 개로 묶어 저장합니다.' : NOTES[v] + ' 스캔·복잡한 편집 문서는 원본과 조금 다를 수 있습니다.';
   }
   sync(preset);
   modal({
-    title: 'PDF 파일 변환',
+    title: 'PDF 파일 변환', wide: true,
     body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, note],
     actions: [{ label: '취소' }, {
       label: '변환하여 저장', kind: 'primary', icon: 'save', run: async () => {
@@ -150,21 +171,13 @@ export async function convertDialog(preset = 'png') {
               download(await z.generateAsync({ type: 'blob', compression: 'STORE' }), base + '_이미지.zip');
             }
           } else {
-            const texts = []; let w = null;
-            for (let n = 0; n < idx.length; n++) {
-              if (b.cancelled) throw new Error('취소되었습니다');
-              b.set(`${n + 1} / ${idx.length} 페이지 글자 추출 중`, n / idx.length);
-              let t = await core.pageText(S.pdf, idx[n] + 1);
-              if (!t && ocr.checked) {
-                b.set(`${n + 1} / ${idx.length} 페이지 OCR 중…`);
-                w ||= await ocrWorker('kor+eng');
-                t = (await ocrPage(w, idx[n])).text;
-              }
-              texts.push(t);
-            }
-            if (!texts.some(Boolean)) throw new Error('추출할 글자가 없습니다. 스캔 문서라면 OCR 옵션을 켜 주세요.');
-            if (f === 'txt') download(new Blob(['﻿' + texts.join('\n\n')], { type: 'text/plain;charset=utf-8' }), base + '.txt');
-            else download(await core.makeDocx(texts), base + '.docx');
+            let w = null;
+            const lib = await D.getPdfjs();
+            const r = await X.exportPages(f, S.pdf, lib, idx, {
+              title: base, images: pics.checked, cancelled: () => b.cancelled, onProgress: (t, p) => b.set(t, p),
+              ocr: ocr.checked ? async i => { w ||= await ocrWorker('kor+eng'); return (await ocrPage(w, i)).text; } : null,
+            });
+            download(r.blob, base + '.' + r.ext);
           }
           toast('변환한 파일을 저장했습니다', 'ok');
         } catch (e) { err(e); return false; } finally { b.close(); }
@@ -513,7 +526,7 @@ function trim(cv, pad = 6) {
 
 export async function signDialog() {
   if (!await needDoc()) return;
-  let tab = 'draw', penColor = '#111111', imgCv = null;
+  let tab = 'draw', penColor = '#111111', penW = 3, imgCv = null;
   const place = (url, w, hh) => { V.addImage(url, w, hh, { width: 150 }); toast('서명을 넣었습니다. 끌어서 위치·크기를 조절하세요', 'ok'); };
   const saved = loadSigs();
   const savedBox = h('div', { class: 'saved' });
@@ -531,7 +544,7 @@ export async function signDialog() {
   pad.addEventListener('pointerdown', e => {
     pad.setPointerCapture(e.pointerId); ink = true;
     const r = pad.getBoundingClientRect(), c = ctxP();
-    c.strokeStyle = penColor; c.lineWidth = 3; c.beginPath(); c.moveTo(e.clientX - r.left, e.clientY - r.top);
+    c.strokeStyle = penColor; c.lineWidth = penW; c.beginPath(); c.moveTo(e.clientX - r.left, e.clientY - r.top);
     c.lineTo(e.clientX - r.left + 0.1, e.clientY - r.top);
     c.stroke(); hint.hidden = true;
     const mv = ev => { c.lineTo(ev.clientX - r.left, ev.clientY - r.top); c.stroke(); c.beginPath(); c.moveTo(ev.clientX - r.left, ev.clientY - r.top); };
@@ -540,15 +553,58 @@ export async function signDialog() {
   });
   const hint = h('div', { class: 'padhint' }, '여기에 서명하세요');
   const colors = h('div', { class: 'swatches' }, ['#111111', '#1473e6', '#e1251b'].map(c => h('button', { class: 'sw' + (c === penColor ? ' on' : ''), style: { background: c }, 'aria-label': '색 ' + c, onclick: e => { penColor = c; $$('.sw', colors).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on'); } })));
-  const drawPane = h('div', {}, h('div', { class: 'padwrap' }, pad, hint), h('div', { class: 'btnrow' }, colors, h('button', { class: 'btn small', onclick: () => { ctxP().clearRect(0, 0, pad.width, pad.height); hint.hidden = false; } }, '지우기')));
+  const drawPane = h('div', {}, h('div', { class: 'padwrap' }, pad, hint), h('div', { class: 'btnrow' }, colors, h('label', { class: 'chk' }, '색 ', h('input', { type: 'color', value: penColor, oninput: e => { penColor = e.target.value; } })), h('label', { class: 'chk' }, '굵기 ', h('input', { type: 'range', min: 1, max: 9, value: penW, oninput: e => { penW = +e.target.value; } })), h('button', { class: 'btn small', onclick: () => { ctxP().clearRect(0, 0, pad.width, pad.height); hint.hidden = false; } }, '지우기')));
 
-  const name = h('input', { class: 'inp', placeholder: '이름을 입력하세요', maxlength: 24 });
-  const fonts = ["'Segoe Script','Brush Script MT','Apple Chancery',cursive", "'Nanum Pen Script','Gaegu','Segoe Print',cursive", "'Times New Roman',Georgia,serif"];
-  let fi = 0;
-  const prev = h('canvas', { class: 'tprev', width: 600, height: 160 });
-  const paintName = () => { const c = prev.getContext('2d'); c.clearRect(0, 0, 600, 160); c.fillStyle = penColor; c.font = `italic 72px ${fonts[fi]}`; c.textBaseline = 'middle'; c.fillText(name.value || '', 20, 84, 560); };
+  const name = h('input', { class: 'inp', placeholder: '이름을 입력하세요 (예: 홍길동, Gildong Hong)', maxlength: 30, 'aria-label': '서명에 쓸 이름' });
+  const userFonts = [];
+  let curFont = SIG_FONTS[0];
+  const fontSel = h('select', { class: 'inp', 'aria-label': '글꼴' });
+  const fillFonts = () => {
+    const groups = {};
+    [...SIG_FONTS, ...userFonts].forEach(f => (groups[f.group] ||= []).push(f));
+    fontSel.replaceChildren(...Object.entries(groups).map(([g, list]) => { const og = h('optgroup', { label: g }); list.forEach(f => og.append(h('option', { value: f.id }, f.label))); return og; }));
+    fontSel.value = curFont.id;
+  };
+  const allFonts = () => [...SIG_FONTS, ...userFonts];
+  fillFonts();
+  const bold = h('input', { type: 'checkbox', onchange: () => paintName() });
+  const ital = h('input', { type: 'checkbox', onchange: () => paintName() });
+  const tColor = h('input', { type: 'color', value: penColor, 'aria-label': '글자 색', oninput: e => { penColor = e.target.value; paintName(); } });
+  const fstat = h('span', { class: 'muted small' });
+  const prev = h('canvas', { class: 'tprev', width: 900, height: 240 });
+  let paintSeq = 0;
+  const paintName = async () => {
+    const my = ++paintSeq;
+    fstat.textContent = '';
+    try { fstat.textContent = curFont.system ? '' : '글꼴을 불러오는 중…'; await ensureFont(curFont); fstat.textContent = ''; }
+    catch { fstat.textContent = '글꼴을 불러오지 못했습니다'; return; }
+    if (my !== paintSeq) return;
+    const c = prev.getContext('2d');
+    c.clearRect(0, 0, prev.width, prev.height);
+    c.fillStyle = penColor; c.textBaseline = 'alphabetic';
+    const font = `${ital.checked ? 'italic ' : ''}${bold.checked ? '700 ' : ''}120px ${cssFamily(curFont)}`;
+    c.font = font;
+    try { await document.fonts.load(font, name.value || '가A'); } catch { /* 시스템 글꼴 */ }
+    const txt = name.value || '';
+    if (txt) c.fillText(txt, 24, 150, prev.width - 48);
+    else { c.fillStyle = '#c4c9d0'; c.font = '36px sans-serif'; c.fillText('이름을 입력하면 여기에 서명이 나타납니다', 24, 130); }
+  };
   name.oninput = paintName;
-  const typePane = h('div', { hidden: true }, name, h('div', { class: 'btnrow' }, ...fonts.map((f, i) => h('button', { class: 'btn small', onclick: () => { fi = i; paintName(); } }, '글꼴 ' + (i + 1)))), prev);
+  fontSel.onchange = () => { curFont = allFonts().find(f => f.id === fontSel.value) || curFont; paintName(); };
+  const loadFile = h('button', { class: 'btn small', onclick: async () => {
+    const [f] = await pickFiles('.ttf,.otf,.woff,.woff2,font/*');
+    if (!f) return;
+    try { const nf = await fontFromFile(f); userFonts.push(nf); curFont = nf; fillFonts(); paintName(); toast('글꼴을 불러왔습니다', 'ok'); } catch { toast('글꼴 파일을 읽을 수 없습니다', 'err'); }
+  } }, '글꼴 파일 불러오기');
+  const loadLocal = canListLocal() ? h('button', { class: 'btn small', onclick: async () => {
+    try { const list = await listLocalFonts(); userFonts.push(...list.filter(x => !userFonts.some(u => u.id === x.id))); fillFonts(); toast(`내 컴퓨터 글꼴 ${list.length}개를 불러왔습니다. 목록의 「내 컴퓨터 글꼴」에서 고르세요`, 'ok'); }
+    catch { toast('글꼴 목록을 볼 수 있는 권한이 없습니다. 「글꼴 파일 불러오기」를 사용해 주세요', 'err'); }
+  } }, '내 컴퓨터 글꼴 보기') : null;
+  const typePane = h('div', { hidden: true },
+    name, row('글꼴', fontSel), h('div', { class: 'btnrow' }, loadFile, loadLocal, fstat),
+    h('div', { class: 'btnrow' }, h('label', { class: 'chk' }, bold, '굵게'), h('label', { class: 'chk' }, ital, '기울임'), h('label', { class: 'chk' }, '색 ', tColor)),
+    prev, h('p', { class: 'muted small' }, '문서에 넣은 뒤에는 모서리 점을 끌어 크기를, 서명을 끌어 위치를 조절할 수 있습니다.'));
+  ital.checked = false;
 
   const bgOff = h('input', { type: 'checkbox', checked: true, onchange: () => paintImg() });
   const imgPrev = h('canvas', { class: 'tprev' });
@@ -561,7 +617,7 @@ export async function signDialog() {
   const imgPane = h('div', { hidden: true }, h('div', { class: 'btnrow' }, h('button', { class: 'btn', onclick: async () => { const [f] = await pickFiles('image/*'); if (f) { imgCv = await core.toCanvas(f, 0, 1200); paintImg(); } }, html: icon('image') + '<span>서명 사진 선택</span>' }), h('label', { class: 'chk' }, bgOff, '흰 배경 지우기')), imgPrev,
     h('p', { class: 'muted small' }, '흰 종이에 서명한 사진을 올리면 배경이 투명하게 처리됩니다.'));
   const keep = h('input', { type: 'checkbox', checked: true });
-  const tabs = seg('sigtab', [['draw', '직접 그리기'], ['type', '이름 입력'], ['img', '사진 올리기']], 'draw', v => { tab = v; drawPane.hidden = v !== 'draw'; typePane.hidden = v !== 'type'; imgPane.hidden = v !== 'img'; if (v === 'type') paintName(); });
+  const tabs = seg('sigtab', [['draw', '직접 그리기', '마우스·손가락으로 서명'], ['type', '이름 입력', '글꼴 골라 텍스트 서명'], ['img', '사진 올리기', '종이에 쓴 서명 사진']], 'draw', v => { tab = v; drawPane.hidden = v !== 'draw'; typePane.hidden = v !== 'type'; imgPane.hidden = v !== 'img'; if (v === 'type') paintName(); });
   const m = modal({
     title: '서명 넣기', wide: true,
     body: [savedBox, tabs.el, drawPane, typePane, imgPane, h('label', { class: 'chk' }, keep, '이 기기에 저장해 다음에도 사용')],
@@ -618,6 +674,7 @@ export async function stampDialog() {
 
 // ======================== 도구 목록 (홈 카드 · 오른쪽 패널 공용) ========================
 export const TOOLS = [
+  { id: 'edittext', group: 'edit', label: 'PDF 편집 (본문 글자 수정)', icon: 'text', color: '#1473e6', desc: '원래 PDF에 있는 글자를 눌러 그 자리에서 고치고 지웁니다.', cta: '열기', doc: true, home: 'PDF 편집', run: () => V.setTool('edittext') },
   { id: 'text', group: 'edit', label: '텍스트 추가', icon: 'text', color: '#1473e6', desc: '문서 위에 글자를 직접 입력합니다.', cta: '열기', doc: true, home: 'PDF 편집', run: () => V.setTool('text') },
   { id: 'note', group: 'edit', label: '메모', icon: 'note', color: '#f0a500', desc: '스티커 메모를 붙이고 강조 표시를 합니다.', cta: '열기', doc: true, home: '주석', run: () => V.setTool('note') },
   { id: 'highlight', group: 'edit', label: '형광펜', icon: 'highlight', color: '#e8b900', desc: '글자를 드래그해 형광색으로 칠합니다.', doc: true, run: () => V.setTool('highlight') },
@@ -633,7 +690,7 @@ export const TOOLS = [
   { id: 'merge', group: 'page', label: '파일 결합', icon: 'merge', color: '#6d4aff', desc: '여러 파일을 하나의 PDF로 합칩니다.', cta: '추가', doc: false, run: () => mergeDialog() },
 
   { id: 'convert', group: 'convert', label: 'PDF 파일변환', icon: 'convert', color: '#0b7a9b', desc: 'PDF를 사진(PNG·JPG), 텍스트, Word로 바꿉니다.', cta: '열기', doc: true, run: () => convertDialog('png') },
-  { id: 'create', group: 'convert', label: 'PDF 만들기', icon: 'file', color: '#e1251b', desc: '사진·스캔 이미지를 PDF로 빠르게 만듭니다.', cta: '추가', doc: false, run: () => imagesDialog() },
+  { id: 'create', group: 'convert', label: '사진에서 PDF 만들기', home: 'PDF 만들기', icon: 'file', color: '#e1251b', desc: '사진·스캔 이미지를 PDF로 빠르게 만듭니다.', cta: '추가', doc: false, run: () => imagesDialog() },
 
   { id: 'compress', group: 'opt', label: 'PDF 압축', icon: 'compress', color: '#0891b2', desc: '용량을 줄여 메일·메신저로 보내기 쉽게 합니다.', cta: '열기', doc: true, run: compressDialog },
   { id: 'security', group: 'opt', label: '비밀번호 보호', icon: 'lock', color: '#b45309', desc: '비밀번호를 걸고 인쇄·복사를 제한합니다.', cta: '열기', doc: true, run: securityDialog },
@@ -642,3 +699,25 @@ export const TOOLS = [
   { id: 'ocr', group: 'opt', label: '문자 인식 (OCR)', icon: 'ocr', color: '#7c3aed', desc: '스캔본에서 글자를 추출하고 검색 가능하게 만듭니다.', cta: '열기', doc: true, run: ocrDialog },
 ];
 export const GROUPS = { edit: '편집 · 주석 · 서명', page: '페이지', convert: '변환', opt: '최적화 · 보호 · 인식' };
+
+// ---------- 확장 도구 · Adobe 구성의 도구 패널 ----------
+TOOLS.push(...TOOLS2);
+[['docx', 'Word로 변환', '글꼴·표·그림을 살려 Word 문서(DOCX)로 바꿉니다.'], ['xlsx', '엑셀로 변환', '표와 글을 칸으로 옮긴 엑셀(XLSX)로 바꿉니다.'], ['pptx', 'PowerPoint로 변환', '쪽마다 슬라이드가 되는 PPTX로 바꿉니다.'],
+  ['png', '이미지로 변환 (PNG·JPG)', '쪽마다 사진 파일로 저장합니다.'], ['txt', '텍스트로 변환', '글만 추출해 TXT로 저장합니다.'], ['html', '웹 페이지로 변환', 'HTML 파일 하나로 저장합니다.'],
+  ['md', '마크다운으로 변환', '제목·표 구조를 살린 MD로 저장합니다.'], ['csv', '표만 CSV로 변환', '문서의 표를 CSV로 저장합니다.']].forEach(([k, label, desc]) =>
+  TOOLS.push({ id: 'to-' + k, group: 'convert', label, icon: 'convert', color: '#0b7a9b', desc, doc: true, run: () => convertDialog(k), hidden: true }));
+export const PANEL = [
+  { label: 'PDF 파일변환', icon: 'convert', color: '#0b7a9b', kids: ['to-docx', 'to-xlsx', 'to-pptx', 'to-png', 'to-txt', 'to-html', 'to-md', 'to-csv', 'getimages'] },
+  { id: 'edittext', label: 'PDF 편집', kids: ['edittext', 'text', 'image', 'whiteout'] },
+  { label: 'PDF 만들기', icon: 'file', color: '#e1251b', kids: ['create', 'create-blank', 'create-text', 'create-paste'] },
+  { label: '주석', icon: 'note', color: '#d4a017', kids: ['note', 'highlight', 'underline', 'strike', 'pen', 'shape', 'stamp'] },
+  { id: 'merge' },
+  { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
+  { id: 'compress' },
+  { label: '교정', icon: 'redact', color: '#b91c1c', kids: ['redact', 'redact-find', 'redact-apply'] },
+  { id: 'forms' },
+  { id: 'signreq' },
+  { label: '채우기 및 서명', icon: 'sign', color: '#5258e4', kids: ['sign', 'fillform', 'stamp'] },
+  { id: 'reviewreq' },
+  { label: '추가 도구', icon: 'tools', color: '#6b7280', kids: ['header', 'watermark', 'security', 'clean', 'ocr', 'props', 'flatform', 'print'] },
+];

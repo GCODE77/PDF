@@ -1,6 +1,8 @@
 // 앱 진입점: 화면 전환 · 툴바 · 홈 카드 · 저장 · 파일 열기
 import { S, $, $$, h, icon, on, emit, toast, busy, modal, pickFiles, readBytes, download } from './state.js';
 import * as D from './doc.js';
+import * as core from './pdfcore.js';
+import { initJobsUI, jobOf, jobPct, anyActive } from './ocrjob.js';
 import * as V from './viewer.js';
 import { initSide, togglePanel, showPanel, focusSearch } from './side.js';
 import { TOOLS, PANEL, imagesDialog, mergeDialog, convertDialog } from './tools.js';
@@ -25,6 +27,26 @@ const docs = [];
 let activeId = null, tabSeq = 0;
 const MAX_TABS = 12;
 const isDirty = d => (d.id === activeId ? S.dirty : d.dirty);
+S.docId = () => activeId;
+// 어느 탭의 문서든(보고 있지 않은 문서도) 결과를 적용한다. 백그라운드 작업(문자 인식 등)이 사용
+S.applyToDoc = async (docId, fn, opt = {}) => {
+  const rec = docs.find(d => d.id === docId);
+  if (!rec) throw new Error('작업하던 문서가 닫혀서 결과를 넣지 못했습니다 (임시저장은 남아 있습니다)');
+  const changed = '작업하는 동안 쪽 구성이 바뀌어 자동으로 넣지 못했습니다. 다시 시작하면 임시저장에서 이어서 합니다';
+  if (docId === activeId) {
+    await D.flush();
+    if (opt.pages && S.n !== opt.pages) throw new Error(changed);
+    await D.applyBytes(await fn(S.bytes));
+    return;
+  }
+  let bytes = rec.bytes;
+  if (rec.overlays && Object.values(rec.overlays).some(l => l.length)) bytes = await core.flatten(rec.bytes, rec.overlays, rec.imgs);
+  if (opt.pages && (await window.PDFLib.PDFDocument.load(bytes)).getPageCount() !== opt.pages) throw new Error(changed);
+  const nb = await fn(bytes);
+  rec.hist.push({ bytes: rec.bytes, ov: JSON.stringify(rec.overlays) });
+  rec.bytes = nb; rec.overlays = {}; rec.fut = []; rec.dirty = true;
+  renderTabs();
+};
 function stashActive() {
   const r = docs.find(d => d.id === activeId);
   if (!r || !S.pdf) return;
@@ -39,7 +61,7 @@ function renderTabs() {
       onclick: () => switchTo(d.id),
       onauxclick: e => { if (e.button === 1) { e.preventDefault(); closeTab(d.id); } },
       onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTo(d.id); } },
-    }, h('span', { class: 'tabname' }, isDirty(d) ? h('span', { class: 'dot', title: '저장하지 않은 변경 사항' }, '●') : null, d.name),
+    }, h('span', { class: 'tabname' }, isDirty(d) ? h('span', { class: 'dot', title: '저장하지 않은 변경 사항' }, '●') : null, d.name, jobOf(d.id) ? h('span', { class: 'tbadge', title: '문자 인식 진행 중 (백그라운드)' }, 'OCR ' + Math.round(jobPct(jobOf(d.id)) * 100) + '%') : null),
     h('button', { class: 'tclose', 'aria-label': d.name + ' 닫기', title: '탭 닫기 (Ctrl+W)', html: icon('x'), onclick: e => { e.stopPropagation(); closeTab(d.id); } }));
     el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-pdfg-tab', String(d.id)); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
     el.addEventListener('dragend', () => { el.classList.remove('dragging'); $$('.tab.doc', box).forEach(t => t.classList.remove('dropbefore', 'dropafter')); });
@@ -93,6 +115,7 @@ async function closeTab(id) {
   if (id === activeId) stashActive();
   const rec = docs[i];
   if (isDirty(rec) && !confirm(`「${rec.name}」에 저장하지 않은 변경 사항이 있습니다. 닫을까요?`)) return;
+  if (jobOf(id) && !confirm(`「${rec.name}」은 문자 인식 중입니다. 닫으면 인식 결과를 문서에 넣지 못합니다 (인식한 쪽은 임시저장되어 다시 열면 이어서 할 수 있어요). 닫을까요?`)) return;
   docs.splice(i, 1);
   if (id !== activeId) { renderTabs(); return; }
   activeId = null;
@@ -342,7 +365,7 @@ addEventListener('drop', async e => {
   else toast('PDF 또는 사진 파일을 놓아 주세요', 'err');
 });
 
-addEventListener('beforeunload', e => { if (docs.some(isDirty)) { e.preventDefault(); e.returnValue = ''; } });
+addEventListener('beforeunload', e => { if (docs.some(isDirty) || anyActive()) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- 앱 설치 · 다운로드 ----------
 const ZIP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-gongjakso-offline.zip';
@@ -421,6 +444,8 @@ if ('launchQueue' in window) {
 // ---------- 시작 ----------
 window.__S = S;   // 디버깅용
 initUpdate();
+initJobsUI();
+on('jobs-changed', () => renderTabs());
 V.initViewer().then(() => {
   initSide();
   V.setTool('select');

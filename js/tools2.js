@@ -156,14 +156,15 @@ export async function extractImagesDialog() {
     actions: [{ label: '취소' }, {
       label: '추출', kind: 'primary', icon: 'save', run: async () => {
         const idx = pages.get(); if (!idx) return false;
-        const bz = busy('그림을 찾는 중…');
+        const bz = busy('그림을 찾는 중…', { stoppable: true });
         try {
           await D.flush();
           const lib = await D.getPdfjs();
           const cache = new Map(), seen = new Set(), files = [];
           for (let n = 0; n < idx.length; n++) {
             if (bz.cancelled) throw new Error('취소되었습니다');
-            bz.set(`${n + 1} / ${idx.length} 페이지`, n / idx.length);
+            if (bz.stopped) break;
+            bz.set(`${n + 1} / ${idx.length}장`, n / idx.length);
             const a = await analyzePage(S.pdf, lib, idx[n] + 1, { color: false, images: true, imgCache: cache });
             for (const b of a.blocks) if (b.type === 'img' && !seen.has(b.data)) { seen.add(b.data); files.push([`${baseName(S.name)}_${String(idx[n] + 1).padStart(3, '0')}_${files.length + 1}.${b.data.ext === 'jpeg' ? 'jpg' : 'png'}`, b.data.data]); }
           }

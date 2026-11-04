@@ -55,7 +55,7 @@ function createWindow() {
   win.webContents.on('will-prevent-unload', e => {
     const r = dialog.showMessageBoxSync(win, {
       type: 'question', buttons: ['저장하지 않고 닫기', '취소'], defaultId: 1, cancelId: 1, title: 'PDF 공작소',
-      message: '저장하지 않은 변경 사항이 있습니다.', detail: '지금 닫으면 편집한 내용이 사라집니다. 닫을까요?',
+      message: '저장하지 않은 변경 사항이나 진행 중인 작업이 있습니다.', detail: '지금 닫으면 저장하지 않은 편집 내용이 사라지고, 진행 중인 작업은 멈춥니다 (문자 인식 결과는 임시저장됩니다). 닫을까요?',
     });
     if (r === 0) e.preventDefault();          // 닫기 허용
   });

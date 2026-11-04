@@ -68,7 +68,7 @@ async function scoreOcr(worker, cv) {
 async function imageFix(worker, pdf, num) {
   const page = await pdf.getPage(num);
   const vw = page.getViewport({ scale: 1 }).width;
-  const cv = await core.renderCanvas(pdf, num, 1000 / vw);
+  const cv = await core.renderCanvas(pdf, num, 760 / vw);
   const ratio = lineRatio(cv);
   const cand = ratio > 1.3 ? [0, 180] : ratio < 0.77 ? [90, 270] : [0, 90, 180, 270];
   const res = [];
@@ -99,26 +99,43 @@ export async function orientDialog() {
     actions: [{ label: '취소' }, {
       label: '검사 시작', kind: 'primary', run: async () => {
         const idx = pages.get(); if (!idx) return false;
-        const b = busy('방향을 검사하는 중…');
+        const b = busy('방향을 검사하는 중…', { stoppable: true });
         let closed = false;
         try {
           await D.flush();
           const lib = await D.getPdfjs();
-          let worker = null;
-          const found = [], unsure = [];
+          const found = [], unsure = [], need = [];
+          // 1단계: 글자 정보가 있는 쪽은 글자 방향으로 즉시 판단 (빠름)
           for (let n = 0; n < idx.length; n++) {
             if (b.cancelled) throw new Error('취소되었습니다');
+            if (b.stopped) break;
             const i = idx[n];
-            b.set(`${n + 1} / ${idx.length} 페이지 검사 중 (${i + 1}쪽)`, n / idx.length);
-            let r = await textFix(S.pdf, lib, i + 1);
-            if (!r) {
-              if (!worker) { b.set('글자 인식 엔진을 준비하는 중… (처음 한 번은 시간이 걸립니다)'); worker = await ocrWorker(lang.value); }
-              r = await imageFix(worker, S.pdf, i + 1);
-            }
-            if (r.rot) found.push({ i, ...r });
-            else if (r.uncertain) unsure.push(i);
-            await new Promise(res => setTimeout(res, 0));
+            b.set(`${n + 1} / ${idx.length}장 글자 방향 확인 중`, 0.25 * n / idx.length);
+            const r = await textFix(S.pdf, lib, i + 1);
+            if (!r) need.push(i); else if (r.rot) found.push({ i, ...r });
+            if (n % 6 === 5) await new Promise(res => setTimeout(res, 0));
           }
+          // 2단계: 스캔(그림) 쪽은 글자를 읽어 방향 판단 — 여러 개를 동시에
+          if (need.length && !b.stopped && !b.cancelled) {
+            b.set('글자 인식 엔진을 준비하는 중… (처음 한 번은 시간이 걸립니다)');
+            const O = await import('./ocrjob.js');
+            const pool = await O.makePool(lang.value, Math.min(O.workerCount(), need.length));
+            let next = 0, done = 0;
+            try {
+              await Promise.all(pool.workers.map(async w => {
+                while (!b.cancelled && !b.stopped) {
+                  const k = next++; if (k >= need.length) return;
+                  const i = need[k];
+                  const r = await imageFix(w, S.pdf, i + 1);
+                  if (r.rot) found.push({ i, ...r }); else if (r.uncertain) unsure.push(i);
+                  done++;
+                  b.set(`${done} / ${need.length}장 스캔 쪽 방향 판단 중 (글자를 읽어 확인)`, 0.25 + 0.75 * done / need.length);
+                }
+              }));
+            } finally { await pool.close(); }
+          }
+          if (b.cancelled) throw new Error('취소되었습니다');
+          found.sort((p, q) => p.i - q.i);
           b.close(); closed = true;
           if (!found.length) { toast(unsure.length ? `돌릴 쪽을 찾지 못했습니다 (확신이 없어 그대로 둔 쪽 ${unsure.length}개: ${unsure.slice(0, 8).map(x => x + 1).join(', ')}…)` : '모든 쪽이 이미 똑바로 되어 있습니다', 'ok'); return; }
           if (review.checked) await showFound(found, unsure);

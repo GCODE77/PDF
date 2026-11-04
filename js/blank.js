@@ -81,14 +81,15 @@ export async function blankPagesDialog() {
     actions: [{ label: '취소' }, {
       label: '빈 페이지 찾기', kind: 'primary', run: async () => {
         const m = mode.get();
-        const b = busy('빈 페이지를 찾는 중…');
+        const b = busy('빈 페이지를 찾는 중…', { stoppable: true });
         let done = false;
         try {
           await D.flush();
           const found = [], withHoles = [];
           for (let i = 0; i < S.n; i++) {
             if (b.cancelled) throw new Error('취소되었습니다');
-            b.set(`${i + 1} / ${S.n} 쪽 분석 중`, i / S.n);
+            if (b.stopped) break;
+            b.set(`${i + 1} / ${S.n}장 분석 중`, i / S.n);
             const pg = await S.pdf.getPage(i + 1);
             const vw = pg.getViewport({ scale: 1 }).width;
             const cv = await core.renderCanvas(S.pdf, i + 1, 830 / vw);

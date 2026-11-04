@@ -207,6 +207,16 @@ export async function openOrganizer({ mode } = {}) {
   const view = S.bytes;
 
   const grid = h('div', { class: 'og' });
+  let ow = Math.max(90, Math.min(420, +(localStorage.getItem('pdfg.ow') || 130)));
+  grid.style.setProperty('--ow', ow + 'px');
+  const zoomIn = h('input', { type: 'range', min: 90, max: 420, value: ow, 'aria-label': '썸네일 크기', oninput: e => setSize(+e.target.value) });
+  const zoomBox = h('label', { class: 'o-zoom', title: '썸네일 크기 (Ctrl + 마우스 휠로도 조절)' }, h('span', {}, '크기'), zoomIn);
+  function setSize(v) {
+    ow = Math.max(90, Math.min(420, Math.round(v)));
+    zoomIn.value = ow; grid.style.setProperty('--ow', ow + 'px');
+    try { localStorage.setItem('pdfg.ow', String(ow)); } catch { /* 저장 불가 */ }
+    draw();                                   // 크기에 맞는 해상도로 다시 그린다
+  }
   const count = h('span', { class: 'o-count' });
   const btn = (ic, label, fn, cls = '') => h('button', { class: 'o-btn ' + cls, onclick: fn, title: label }, h('span', { html: icon(ic) }), h('span', { class: 'lb' }, label));
   const bApply = h('button', { class: 'btn primary', onclick: apply }, '변경 적용');
@@ -219,8 +229,8 @@ export async function openOrganizer({ mode } = {}) {
     btn('rotl', '왼쪽 회전', () => rot(-90)), btn('rotr', '오른쪽 회전', () => rot(90)),
     btn('left', '앞으로', () => move(-1)), btn('right', '뒤로', () => move(1)),
     btn('copy', '복제', dup), btn('plus', '빈 페이지', blank),
-    btn('extract', '선택 추출', extract), btn('trash', '삭제', del, 'danger'));
-  root.replaceChildren(bar, tools, h('div', { class: 'o-hint' }, '페이지를 눌러 선택하세요. 끌어서 순서를 바꾸거나, 위 버튼으로 회전·삭제·복제·추출할 수 있습니다.'), grid);
+    btn('extract', '선택 추출', extract), btn('trash', '삭제', del, 'danger'), h('span', { class: 'sp1' }), zoomBox);
+  root.replaceChildren(bar, tools, h('div', { class: 'o-hint' }, '페이지를 눌러 선택하고 끌어서 순서를 바꿉니다. Ctrl을 누른 채 마우스를 올리면 크게 보이고, Ctrl + 휠로 크기를 바꿀 수 있습니다. 더블클릭하면 크게 열립니다.'), grid);
   root.hidden = false;
   document.body.classList.add('no-scroll');
 
@@ -228,11 +238,13 @@ export async function openOrganizer({ mode } = {}) {
   async function paintThumb(cell) {
     const src = +cell.dataset.src;
     if (src < 0) return;
-    let cv = tcache.get(src + 1);
+    const target = Math.round(Math.max(150, ow) * Math.min(2, window.devicePixelRatio || 1) * 1.15);
+    const tkey = 'o' + (src + 1) + '@' + (target >> 5);
+    let cv = tcache.get(tkey);
     if (!cv) {
       const pg = await S.pdf.getPage(src + 1);
-      cv = await core.renderCanvas(S.pdf, src + 1, 150 / pg.getViewport({ scale: 1 }).width);
-      tcache.set(src + 1, cv);
+      cv = await core.renderCanvas(S.pdf, src + 1, target / pg.getViewport({ scale: 1 }).width);
+      tcache.set(tkey, cv);
     }
     const c = h('canvas'); c.width = cv.width; c.height = cv.height; c.getContext('2d').drawImage(cv, 0, 0);
     cell.querySelector('.ocv').replaceChildren(c);
@@ -241,9 +253,10 @@ export async function openOrganizer({ mode } = {}) {
     grid.replaceChildren();
     items.forEach((it, n) => {
       const on_ = sel.has(it.k);
-      const cell = h('div', { class: 'ocell' + (on_ ? ' on' : ''), draggable: 'true', 'data-src': it.blank ? -1 : it.src, 'data-k': it.k, role: 'checkbox', 'aria-checked': on_, tabindex: 0,
+      const cell = h('div', { class: 'ocell' + (on_ ? ' on' : ''), draggable: 'true', 'data-src': it.blank ? -1 : it.src, 'data-k': it.k, 'data-rot': it.rot, role: 'checkbox', 'aria-checked': on_, tabindex: 0,
         onclick: () => { on_ ? sel.delete(it.k) : sel.add(it.k); draw(); },
         onkeydown: e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); on_ ? sel.delete(it.k) : sel.add(it.k); draw(); } },
+        ondblclick: () => { if (!it.blank) bigView(it, n); },
         ondragstart: e => { dragK = it.k; e.dataTransfer.effectAllowed = 'move'; cell.classList.add('drag'); },
         ondragend: () => { dragK = null; cell.classList.remove('drag'); },
         ondragover: e => { e.preventDefault(); cell.classList.add('over'); },
@@ -265,6 +278,66 @@ export async function openOrganizer({ mode } = {}) {
     $$('.o-tools .o-btn', root).forEach((b, i) => { b.disabled = !(i === 0 || i === 6 || sel.size); });
     const changed = JSON.stringify(items.map(x => x.k)) !== orig || items.some(x => x.rot);
     bApply.disabled = !changed;
+  }
+  // ---- Ctrl 을 누른 채 올리면 커지는 돋보기 / 더블클릭 크게 보기 / Ctrl+휠 크기 ----
+  const loupe = h('div', { class: 'oloupe', hidden: true });
+  root.append(loupe);
+  let loupeSrc = -1, hoverCell = null, lastEv = null, loupeSeq = 0;
+  const lcache = new Map();
+  async function bigCanvas(src, wpx) {
+    const key = src + '@' + wpx;
+    if (!lcache.has(key)) {
+      const pg = await S.pdf.getPage(src + 1);
+      const cv = await core.renderCanvas(S.pdf, src + 1, wpx / pg.getViewport({ scale: 1 }).width);
+      lcache.set(key, cv);
+      if (lcache.size > 12) { const first = lcache.keys().next().value; const old = lcache.get(first); old.width = 0; lcache.delete(first); }
+    }
+    return lcache.get(key);
+  }
+  const paintInto = (host, cv, rot) => {
+    const c = h('canvas'); c.width = cv.width; c.height = cv.height; c.getContext('2d').drawImage(cv, 0, 0);
+    c.style.cssText = `max-width:100%;transform:rotate(${rot}deg);transform-origin:center`;
+    host.replaceChildren(c);
+  };
+  async function showLoupe(cell, e) {
+    const src = +cell.dataset.src, rot = +cell.dataset.rot || 0;
+    if (src < 0) return hideLoupe();
+    const W = Math.min(560, Math.round(innerWidth * 0.42));
+    loupe.hidden = false; loupe.style.width = W + 'px';
+    const x = e.clientX + 24 + W > innerWidth ? e.clientX - 24 - W : e.clientX + 24;
+    loupe.style.left = Math.max(8, x) + 'px';
+    loupe.style.top = Math.max(8, Math.min(innerHeight - 40, e.clientY - 40)) + 'px';
+    const tag = src + ':' + rot;
+    if (loupeSrc === tag) return;
+    loupeSrc = tag;
+    const my = ++loupeSeq;
+    loupe.replaceChildren(h('div', { class: 'lspin' }, '불러오는 중…'));
+    const cv = await bigCanvas(src, W * 2);
+    if (my !== loupeSeq) return;
+    const host = h('div', { class: 'lbody' });
+    paintInto(host, cv, rot);
+    loupe.replaceChildren(host, h('div', { class: 'lno' }, `원본 ${src + 1}쪽`));
+  }
+  function hideLoupe() { loupe.hidden = true; loupeSrc = -1; loupeSeq++; }
+  grid.addEventListener('mousemove', e => {
+    hoverCell = e.target.closest('.ocell'); lastEv = e;
+    if (e.ctrlKey && hoverCell) showLoupe(hoverCell, e); else if (!loupe.hidden) hideLoupe();
+  });
+  grid.addEventListener('mouseleave', () => { hoverCell = null; hideLoupe(); });
+  const onKeyLoupe = e => {
+    if (e.key !== 'Control') return;
+    if (e.type === 'keydown' && hoverCell && lastEv) showLoupe(hoverCell, lastEv); else hideLoupe();
+  };
+  document.addEventListener('keydown', onKeyLoupe); document.addEventListener('keyup', onKeyLoupe);
+  grid.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setSize(ow * (e.deltaY < 0 ? 1.12 : 1 / 1.12)); } }, { passive: false });
+  async function bigView(it, n) {
+    const bb = busy('크게 불러오는 중…');
+    try {
+      const cv = await bigCanvas(it.src, 1100);
+      const host = h('div', { class: 'bigview' });
+      paintInto(host, cv, it.rot);
+      modal({ title: `${n + 1}쪽 (원본 ${it.src + 1}쪽)`, wide: true, body: host, actions: [{ label: '닫기' }] });
+    } finally { bb.close(); }
   }
   const chosen = () => items.filter(x => sel.has(x.k));
   function rot(d) { chosen().forEach(x => x.rot = ((x.rot + d) % 360 + 360) % 360); draw(); }
@@ -312,7 +385,9 @@ export async function openOrganizer({ mode } = {}) {
   }
   function close(force) {
     if (force !== true && !bApply.disabled && !confirm('적용하지 않은 변경이 있습니다. 그래도 닫을까요?')) return;
-    obs.disconnect(); root.hidden = true; root.replaceChildren(); document.body.classList.remove('no-scroll');
+    obs.disconnect(); document.removeEventListener('keydown', onKeyLoupe); document.removeEventListener('keyup', onKeyLoupe);
+    lcache.forEach(c => { c.width = 0; }); lcache.clear();
+    root.hidden = true; root.replaceChildren(); document.body.classList.remove('no-scroll');
   }
   // 페이지 크기 조회(빈 페이지 크기 기준)
   S.__sizes = await Promise.all(Array.from({ length: S.n }, (_, i) => S.pdf.getPage(i + 1).then(p => { const v = p.getViewport({ scale: 1 }); return [v.width, v.height]; })));

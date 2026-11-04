@@ -41,7 +41,7 @@ export const seg = (name, items, val, onchange) => {
 // ======================== OCR 엔진 ========================
 let ocrW = null, ocrLang = '';
 const abs = p => new URL(p, location.href).href.replace(/\/$/, '');
-async function ocrWorker(lang, log) {
+export async function ocrWorker(lang, log) {
   if (ocrW && ocrLang === lang) return ocrW;
   if (ocrW) { await ocrW.terminate(); ocrW = null; }
   ocrW = await window.Tesseract.createWorker(lang, 1, {
@@ -81,7 +81,11 @@ export async function ocrDialog() {
         let cur = 0;
         try {
           await D.flush();
-          const w = await ocrWorker(lang.value, m => { if (m.status === 'recognizing text') b.set(null, (cur + m.progress) / idx.length); });
+          const PREP = { 'loading tesseract core': '인식 엔진을 불러오는 중…', 'initializing tesseract': '인식 엔진을 준비하는 중…', 'loading language traineddata': '언어 데이터를 불러오는 중… (처음 한 번은 시간이 걸립니다)', 'initializing api': '인식 엔진을 시작하는 중…' };
+          const w = await ocrWorker(lang.value, m => {
+            if (m.status === 'recognizing text') b.set(null, (cur + m.progress) / idx.length);
+            else if (PREP[m.status]) b.set(PREP[m.status]);
+          });
           const results = [];
           for (const i of idx) {
             if (b.cancelled) throw new Error('취소되었습니다');
@@ -282,10 +286,12 @@ export async function mergeDialog(initial = []) {
     }
     draw();
   };
+  const dedupe = h('input', { type: 'checkbox' });
   const m = modal({
     title: '파일 결합', wide: true,
     body: [h('p', { class: 'muted' }, '여러 PDF를 하나로 합칩니다. 위·아래 버튼으로 순서를 바꾸세요.'),
-      h('div', { class: 'btnrow' }, h('button', { class: 'btn', onclick: async () => add(await pickFiles('application/pdf,.pdf', true)), html: icon('plus') + '<span>PDF 추가</span>' })), list],
+      h('div', { class: 'btnrow' }, h('button', { class: 'btn', onclick: async () => add(await pickFiles('application/pdf,.pdf', true)), html: icon('plus') + '<span>PDF 추가</span>' })), list,
+      h('label', { class: 'chk' }, dedupe, '합친 뒤 중복된 쪽 찾아서 지우기 (같은 쪽이 여러 파일에 들어 있을 때)')],
     actions: [{ label: '취소' }, {
       label: '결합하기', kind: 'primary', icon: 'merge', run: async () => {
         const b = busy('PDF를 합치는 중…');
@@ -294,6 +300,7 @@ export async function mergeDialog(initial = []) {
           const bytes = await core.mergePdfs(items.map(i => i.cur ? cur : i.bytes));
           if (S.pdf) { await D.flush(); await D.applyBytes(bytes); } else await S.openBytes(bytes, '결합본.pdf');
           toast(`${items.length}개 파일을 합쳤습니다`, 'ok');
+          if (dedupe.checked) setTimeout(() => import('./dup.js').then(x => x.duplicatePagesDialog({ fromMerge: true })), 200);
         } catch (e) { err(e); return false; } finally { b.close(); }
       },
     }],
@@ -726,7 +733,7 @@ export const PANEL = [
   { label: 'PDF 만들기', icon: 'file', color: '#e1251b', kids: ['create', 'create-blank', 'create-text', 'create-paste'] },
   { label: '주석', icon: 'note', color: '#d4a017', kids: ['note', 'highlight', 'underline', 'strike', 'pen', 'shape', 'stamp'] },
   { id: 'merge' },
-  { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'blankpages', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
+  { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'blankpages', 'duppages', 'autorotate', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
   { id: 'compress' },
   { label: '교정', icon: 'redact', color: '#b91c1c', kids: ['redact', 'redact-find', 'redact-apply'] },
   { id: 'forms' },

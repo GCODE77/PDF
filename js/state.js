@@ -50,19 +50,37 @@ export function toast(msg, kind = '') {
 // 처리 중 오버레이 (진행률 + 취소)
 export function busy(msg = '처리 중…') {
   const root = $('#busy');
-  const bar = h('div', { class: 'bar' }, h('i'));
+  const bar = h('div', { class: 'bar ind' }, h('i'));
   const txt = h('div', { class: 'bt' }, msg);
+  const info = h('div', { class: 'binfo' });
+  const cnt = h('div', { class: 'bcount', hidden: true });
   const cancel = h('button', { class: 'btn ghost', onclick: () => { api.cancelled = true; cancel.disabled = true; txt.textContent = '취소하는 중…'; } }, '취소');
-  const box = h('div', { class: 'busybox' }, h('div', { class: 'spin' }), txt, bar, cancel);
+  const box = h('div', { class: 'busybox', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'spin' }), txt, cnt, bar, info, cancel);
   root.replaceChildren(box);
   root.hidden = false;
+  const t0 = Date.now();
+  let pct = null;
+  const fmt = sec => (sec < 60 ? `${Math.max(1, Math.round(sec))}초` : `${Math.floor(sec / 60)}분 ${Math.round(sec % 60)}초`);
+  const render = () => {
+    const el = (Date.now() - t0) / 1000;
+    if (pct != null && pct >= 0.995) info.textContent = '마무리하는 중…';
+    else if (pct != null && pct > 0.03) info.textContent = `${Math.round(pct * 100)}% · 남은 시간 약 ${fmt(el * (1 - pct) / pct)} · 경과 ${fmt(el)}`;
+    else if (pct != null) info.textContent = `${Math.round(pct * 100)}% · 경과 ${fmt(el)}`;
+    else info.textContent = `처리 중입니다. 경과 ${fmt(el)} (오래 걸릴 수 있어요)`;
+  };
+  const timer = setInterval(render, 500);
+  render();
   const api = {
     cancelled: false,
-    set(m, pct) {
-      if (m) txt.textContent = m;
-      if (pct != null) bar.firstChild.style.width = Math.round(pct * 100) + '%';
+    set(m, p) {
+      if (m) {
+        txt.textContent = m;
+        const mm = /(\d+)\s*\/\s*(\d+)\s*(?:장|쪽|페이지|개)?/.exec(m);
+        if (mm && +mm[2] > 1) { cnt.hidden = false; cnt.textContent = `${mm[1]} / ${mm[2]}장`; }
+      }
+      if (p != null) { pct = Math.max(0, Math.min(1, p)); bar.classList.remove('ind'); bar.firstChild.style.width = Math.round(pct * 100) + '%'; render(); }
     },
-    close() { root.hidden = true; root.replaceChildren(); },
+    close() { clearInterval(timer); root.hidden = true; root.replaceChildren(); },
   };
   return api;
 }

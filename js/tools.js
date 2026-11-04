@@ -66,39 +66,52 @@ async function ocrPage(w, index) {
 }
 
 // ======================== 문자 인식(OCR) ========================
+// 백그라운드 작업으로 돌아가므로 창을 닫고 다른 문서를 열어도 계속됩니다 (ocrjob.js)
 export async function ocrDialog() {
   if (!await needDoc()) return;
+  await D.flush();
+  const O = await import('./ocrjob.js');
+  const pdf = S.pdf, bytes = S.bytes, n = S.n;
   const lang = h('select', { class: 'inp' }, opt('kor+eng', '한국어 + 영어'), opt('eng', '영어'), opt('kor', '한국어'));
-  const pages = pagesField();
-  const out = seg('ocrout', [['pdf', '검색 가능한 PDF로 만들기', '문서에 글자 정보를 넣어 검색·복사가 가능해집니다'], ['txt', '글자만 추출', '인식한 글자를 보고 복사·저장합니다']], 'pdf');
+  const scope = h('select', { class: 'inp' }, opt('todo', '글자 인식이 안 된 쪽만 (권장)'), opt('all', `전체 (${n}쪽)`), opt('cur', `현재 쪽 (${S.curPage}쪽)`), opt('custom', '직접 입력'));
+  const custom = h('input', { class: 'inp', placeholder: '예: 1-30, 45, 60-', hidden: true });
+  const skipChk = h('input', { type: 'checkbox', checked: true });
+  const skipRow = row('옵션', h('label', { class: 'chk' }, skipChk, '이미 글자가 있는 쪽은 건너뛰기'));
+  skipRow.hidden = true;
+  scope.onchange = () => { custom.hidden = scope.value !== 'custom'; skipRow.hidden = scope.value === 'todo' || scope.value === 'cur'; if (!custom.hidden) custom.focus(); };
+  const speed = seg('ocrspeed', [['fast', '빠르게', '작은 글씨는 놓칠 수 있음'], ['normal', '보통 (권장)', '속도와 정확도 균형'], ['best', '정확하게', '가장 느림']], 'normal');
+  const out = seg('ocrout', [['pdf', '검색 가능한 PDF로 만들기', '글자 정보를 넣어 검색·복사가 가능해집니다'], ['txt', '글자만 추출', '인식한 글자를 보고 복사·저장합니다']], 'pdf');
+  const status = h('div', { class: 'ocrstat' }, '글자 인식 상태를 확인하는 중…');
+  const refreshStatus = async () => {
+    const arr = await O.pageTextStatus(pdf, k => { status.textContent = `글자 인식 상태를 확인하는 중… ${k} / ${n}장`; });
+    const todo = []; arr.forEach((v, i) => { if (!v) todo.push(i); });
+    const saved = await O.savedCount(bytes, n, lang.value);
+    status.replaceChildren(
+      h('div', {}, h('b', {}, `전체 ${n}쪽`), ` · 글자 인식 완료 ${n - todo.length}쪽 · 아직 안 된 쪽 `, h('b', { class: todo.length ? 'warn' : 'okc' }, `${todo.length}쪽`)),
+      h('div', { class: 'muted small' }, todo.length ? '아직 안 된 쪽: ' + O.toRanges(todo) : '모든 쪽에 글자 정보가 있습니다.'),
+      saved ? h('div', { class: 'small' }, `이전에 임시저장된 인식 결과 ${saved}쪽이 있습니다. 「인식 시작」을 누르면 이어서 합니다.`) : null);
+  };
+  lang.onchange = () => refreshStatus();
+  refreshStatus();
+  const running = O.jobOf(S.docId?.());
   modal({
     title: '문자 인식 (OCR)', wide: false,
-    body: [h('p', { class: 'muted' }, '스캔한 문서·사진 속 글자를 인식합니다. 모든 처리는 이 기기 안에서 이루어지며 파일이 외부로 전송되지 않습니다.'), row('인식 언어', lang), pages.el, out.el],
-    actions: [{ label: '취소' }, {
+    body: [h('p', { class: 'muted' }, '스캔한 문서·사진 속 글자를 인식합니다. 모든 처리는 이 기기 안에서 이루어지며 파일이 외부로 전송되지 않습니다. 시작하면 백그라운드에서 돌아가므로 다른 문서를 열어 작업해도 됩니다.'),
+      running ? h('p', { class: 'warnbox' }, '이 문서는 지금 문자 인식이 진행 중입니다 (왼쪽 아래 작업 상자 확인).') : null,
+      status, row('인식 언어', lang), row('대상 페이지', scope, custom), skipRow, speed.el, out.el],
+    actions: [{ label: '닫기' }, {
       label: '인식 시작', kind: 'primary', icon: 'ocr', run: async () => {
-        const idx = pages.get(); if (!idx) return false;
-        const b = busy('인식 엔진을 준비하는 중…');
-        let cur = 0;
-        try {
-          await D.flush();
-          const PREP = { 'loading tesseract core': '인식 엔진을 불러오는 중…', 'initializing tesseract': '인식 엔진을 준비하는 중…', 'loading language traineddata': '언어 데이터를 불러오는 중… (처음 한 번은 시간이 걸립니다)', 'initializing api': '인식 엔진을 시작하는 중…' };
-          const w = await ocrWorker(lang.value, m => {
-            if (m.status === 'recognizing text') b.set(null, (cur + m.progress) / idx.length);
-            else if (PREP[m.status]) b.set(PREP[m.status]);
-          });
-          const results = [];
-          for (const i of idx) {
-            if (b.cancelled) throw new Error('취소되었습니다');
-            b.set(`${cur + 1} / ${idx.length} 페이지 인식 중…`, cur / idx.length);
-            results.push(await ocrPage(w, i)); cur++;
-          }
-          if (out.get() === 'pdf') {
-            b.set('검색 가능한 PDF를 만드는 중…');
-            await D.applyBytes(await core.addInvisibleText(S.bytes, results));
-            const n = results.reduce((a, r) => a + r.words.length, 0);
-            toast(n ? `글자 ${n}개를 인식했습니다. 이제 검색(Ctrl+F)·복사가 가능합니다` : '인식된 글자가 없습니다', n ? 'ok' : 'err');
-          } else showText(results.map(r => `── ${r.index + 1}쪽 ──\n${r.text}`).join('\n\n'));
-        } catch (e) { err(e); } finally { b.close(); }
+        const arr = await O.pageTextStatus(pdf);
+        let idx;
+        if (scope.value === 'todo') idx = Array.from(arr, (v, i) => (v ? -1 : i)).filter(i => i >= 0);
+        else if (scope.value === 'all') idx = Array.from({ length: n }, (_, i) => i);
+        else if (scope.value === 'cur') idx = [S.curPage - 1];
+        else { idx = parseRange(custom.value, n); if (!idx) { toast(`페이지 범위를 확인해 주세요 (1~${n})`, 'err'); return false; } }
+        if (!idx.length) { toast('인식할 쪽이 없습니다. 모든 쪽에 이미 글자가 있어요', 'ok'); return false; }
+        const skipText = scope.value === 'todo' || (scope.value !== 'cur' && skipChk.checked);
+        const job = await O.startOcrJob({ docId: S.docId?.(), name: S.name, bytes, indices: idx, lang: lang.value, width: O.OCR_WIDTH[speed.get()], skipText, out: out.get(), nWorkers: O.workerCount() });
+        if (!job) return false;
+        toast('백그라운드에서 인식을 시작했습니다. 다른 문서를 열어도 됩니다. 왼쪽 아래 「OCR」 상자에서 진행 상황·중지를 할 수 있어요', 'ok');
       },
     }],
   });
@@ -152,7 +165,7 @@ export async function convertDialog(preset = 'png') {
     actions: [{ label: '취소' }, {
       label: '변환하여 저장', kind: 'primary', icon: 'save', run: async () => {
         const idx = pages.get(); if (!idx) return false;
-        const f = fmt.get(), b = busy('변환하는 중…');
+        const f = fmt.get(), b = busy('변환하는 중…', { stoppable: true });
         try {
           await D.flush();
           const base = baseName(S.name);
@@ -161,6 +174,7 @@ export async function convertDialog(preset = 'png') {
             const files = [];
             for (let n = 0; n < idx.length; n++) {
               if (b.cancelled) throw new Error('취소되었습니다');
+              if (b.stopped) break;
               b.set(`${n + 1} / ${idx.length} 페이지`, n / idx.length);
               const cv = await core.renderCanvas(S.pdf, idx[n] + 1, +dpi.value / 72);
               const blob = await new Promise(r => cv.toBlob(r, mime, 0.92));
@@ -178,7 +192,7 @@ export async function convertDialog(preset = 'png') {
             let w = null;
             const lib = await D.getPdfjs();
             const r = await X.exportPages(f, S.pdf, lib, idx, {
-              title: base, images: pics.checked, cancelled: () => b.cancelled, onProgress: (t, p) => b.set(t, p),
+              title: base, images: pics.checked, cancelled: () => b.cancelled, stopped: () => b.stopped, onProgress: (t, p) => b.set(t, p),
               ocr: ocr.checked ? async i => { w ||= await ocrWorker('kor+eng'); return (await ocrPage(w, i)).text; } : null,
             });
             download(r.blob, base + '.' + r.ext);
@@ -324,11 +338,11 @@ export async function compressDialog() {
       h('p', { class: 'muted small' }, '「균형·최대」는 페이지를 이미지로 다시 만들기 때문에 글자 선택·검색이 사라집니다. 필요하면 압축 후 「문자 인식(OCR)」을 실행하세요.')],
     actions: [{ label: '취소' }, {
       label: '압축하기', kind: 'primary', icon: 'compress', run: async () => {
-        const b = busy('압축하는 중…');
+        const b = busy('압축하는 중…', { stoppable: true });
         let res;
         try {
           const v = lv.get();
-          res = v === 'light' ? await core.optimize(S.bytes) : await core.rasterRebuild(S.bytes, S.pdf, v === 'mid' ? { scale: 1.35, quality: 0.62 } : { scale: 1.0, quality: 0.45 }, (p, t) => { b.set(t, p); return !b.cancelled; });
+          res = v === 'light' ? await core.optimize(S.bytes) : await core.rasterRebuild(S.bytes, S.pdf, v === 'mid' ? { scale: 1.35, quality: 0.62 } : { scale: 1.0, quality: 0.45 }, (p, t) => { b.set(t, p); return b.stopped ? 'stop' : !b.cancelled; });
         } catch (e) { err(e); return false; } finally { b.close(); }
         if (res.length >= before) { toast('이미 충분히 최적화되어 더 줄일 수 없습니다. 다른 단계를 선택해 보세요.', 'err'); return false; }
         await D.applyBytes(res);
@@ -452,10 +466,10 @@ export async function cleanDialog() {
     actions: [{ label: '취소' }, {
       label: '적용하기', kind: 'primary', icon: 'clean', run: async () => {
         const idx = pages.get(); if (!idx) return false;
-        const b = busy('배경을 정리하는 중…');
+        const b = busy('배경을 정리하는 중…', { stoppable: true });
         try {
           const m = mode.get(), s = +str.value;
-          const bytes = await core.rasterRebuild(S.bytes, S.pdf, { indices: idx, scale: 2, quality: 0.85, filter: cv => core.cleanCanvas(cv, { mode: m, strength: s }) }, (p, t) => { b.set(t, p); return !b.cancelled; });
+          const bytes = await core.rasterRebuild(S.bytes, S.pdf, { indices: idx, scale: 2, quality: 0.85, filter: cv => core.cleanCanvas(cv, { mode: m, strength: s }) }, (p, t) => { b.set(t, p); return b.stopped ? 'stop' : !b.cancelled; });
           await D.applyBytes(bytes);
           toast('배경을 정리했습니다', 'ok');
         } catch (e) { err(e); return false; } finally { b.close(); }

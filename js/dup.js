@@ -54,13 +54,14 @@ export async function duplicatePagesDialog(opt = {}) {
     actions: [{ label: opt.fromMerge ? '그냥 두기' : '취소' }, {
       label: '중복 찾기', kind: 'primary', run: async () => {
         const NEED = mode.get() === 'near' ? 0.88 : 0.965;
-        const b = busy('중복 페이지를 찾는 중…');
+        const b = busy('중복 페이지를 찾는 중…', { stoppable: true });
         let closed = false;
         try {
           await D.flush();
           const sigs = [];
           for (let i = 0; i < S.n; i++) {
             if (b.cancelled) throw new Error('취소되었습니다');
+            if (b.stopped) break;
             b.set(`${i + 1} / ${S.n}장 분석 중`, i / S.n);
             sigs.push(await signature(S.pdf, i + 1));
             if (i % 4 === 3) await new Promise(r => setTimeout(r, 0));

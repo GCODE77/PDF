@@ -9,7 +9,11 @@ const tcache = new Map();         // 페이지 번호 -> 썸네일 canvas (문�
 
 export function initSide() {
   panelEl = $('#panel');
-  on('doc-loaded', () => { tcache.clear(); S.search = null; textCache.clear(); renderPanel(); });
+  on('doc-loaded', d => {
+    const keep = d?.keepPage && panelEl ? panelEl.scrollTop : 0;      // 회전·삭제 뒤에도 목록 위치 유지
+    tcache.clear(); S.search = null; textCache.clear(); renderPanel();
+    if (keep) panelEl.scrollTop = keep;
+  });
   on('page-changed', markActive);
   $$('#rail button').forEach(b => b.addEventListener('click', () => showPanel(b.dataset.panel)));
   $('#panelClose').addEventListener('click', () => togglePanel(false));
@@ -73,6 +77,13 @@ async function drawThumb(cell) {
   const c = cv.cloneNode ? h('canvas') : cv;
   c.width = cv.width; c.height = cv.height; c.getContext('2d').drawImage(cv, 0, 0);
   cell.querySelector('.tcv').replaceChildren(c);
+  import('./ocrjob.js').then(O => O.pageHasText(S.pdf, n - 1)).then(has => {
+    let tag = cell.querySelector('.ttxt');
+    if (!tag) { tag = h('span', { class: 'ttxt' }); cell.append(tag); }
+    tag.className = 'ttxt ' + (has ? 'yes' : 'no');
+    tag.textContent = has ? '글자' : '그림';
+    tag.title = has ? '글자 정보가 있어 검색·복사가 됩니다' : '글자 정보가 없는 쪽(스캔 그림). 문자 인식(OCR)이 필요합니다';
+  }).catch(() => { /* 표시만 생략 */ });
 }
 
 function markActive() {
@@ -83,12 +94,15 @@ function markActive() {
 
 export async function quickOp(idx, op) {
   if (op === 'del' && S.n === 1) return toast('마지막 한 페이지는 삭제할 수 없습니다', 'err');
-  const b = await D.flush();
-  const plan = Array.from({ length: S.n }, (_, i) => ({ src: i, rot: 0 }));
-  if (op === 'rotL') plan[idx].rot = -90;
-  else if (op === 'rotR') plan[idx].rot = 90;
-  else plan.splice(idx, 1);
-  await D.applyBytes(await core.applyPlan(b, plan));
+  const bz = S.bytes.length > 2e6 ? busy(op === 'del' ? '삭제하는 중…' : '회전하는 중…') : null;   // 큰 문서는 몇 초 걸려서 진행 표시
+  try {
+    const b = await D.flush();
+    const plan = Array.from({ length: S.n }, (_, i) => ({ src: i, rot: 0 }));
+    if (op === 'rotL') plan[idx].rot = -90;
+    else if (op === 'rotR') plan[idx].rot = 90;
+    else plan.splice(idx, 1);
+    await D.applyBytes(await core.applyPlan(b, plan));
+  } finally { bz?.close(); }
   toast(op === 'del' ? `${idx + 1}페이지를 삭제했습니다 (되돌리기: Ctrl+Z)` : '회전했습니다');
 }
 

@@ -36,10 +36,11 @@ const textBlocks = (text, W, H) => {
 };
 
 // 모든 페이지를 분석한다. 글이 없는 쪽은 ocr(index) 로 글자를 얻어 문단으로 만든다
-export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, ocr, images = true } = {}) {
+export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, stopped, ocr, images = true } = {}) {
   const out = [], imgCache = new Map();
   for (let n = 0; n < idx.length; n++) {
     if (cancelled?.()) throw new Error('취소되었습니다');
+    if (stopped?.()) break;
     onProgress?.(`${n + 1} / ${idx.length} 페이지 분석 중`, n / idx.length);
     let m = await analyzePage(pdf, lib, idx[n] + 1, { images, imgCache });
     if (!m.textLen && ocr) {

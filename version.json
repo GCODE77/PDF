@@ -1,5 +1,5 @@
 {
- "version": "1.4.0",
- "notes": "진행 표시(몇 장 중 몇 장·남은 시간) 수정, 뒤집힌 쪽 자동 바로잡기, 중복 쪽 제거, 페이지 정리 확대",
+ "version": "1.5.0",
+ "notes": "문자 인식 백그라운드 처리(다른 문서 작업 가능)·병렬 고속화·중지 시 지금까지 적용·임시저장 이어서·쪽별 글자 상태, 회전 후 위치 유지",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

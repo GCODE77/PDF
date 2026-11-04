@@ -438,7 +438,13 @@ export async function rasterRebuild(bytes, pdf, { indices = null, scale = 1.5, q
   const src = sel && sel.size < pdf.numPages ? await PDFDocument.load(bytes) : null;
   const out = await PDFDocument.create();
   for (let i = 0; i < pdf.numPages; i++) {
-    if (prog && prog(i / pdf.numPages, `${i + 1} / ${pdf.numPages} 페이지 처리 중`) === false) throw new Error('취소되었습니다');
+    const pr = prog ? prog(i / pdf.numPages, `${i + 1} / ${pdf.numPages} 페이지 처리 중`) : true;
+    if (pr === false) throw new Error('취소되었습니다');
+    if (pr === 'stop') {                                         // 중지: 여기까지 처리한 쪽 + 남은 쪽은 원본 그대로
+      const rest = src || await PDFDocument.load(bytes);
+      for (let k = i; k < pdf.numPages; k++) { const [rp] = await out.copyPages(rest, [k]); out.addPage(rp); }
+      break;
+    }
     if (sel && !sel.has(i)) { const [p] = await out.copyPages(src, [i]); out.addPage(p); continue; }
     const page = await pdf.getPage(i + 1);
     const v1 = page.getViewport({ scale: 1 });

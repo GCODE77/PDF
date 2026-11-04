@@ -59,8 +59,14 @@ function onKey(e) {
 }
 
 // ======================== 페이지 구성 ========================
+let building = false;
 async function build({ keepPage, fresh }) {
   const keep = keepPage ? S.curPage : 1;
+  // 다시 그린 뒤에도 같은 쪽의 같은 자리에 머물도록 쪽 안에서의 위치(pt)와 가로 위치를 기억
+  const rel = keepPage && LY().cont && tops[keep - 1] >= 0 ? Math.max(0, (viewerEl.scrollTop - tops[keep - 1]) / scale()) : 0;
+  const left = keepPage ? viewerEl.scrollLeft : 0;
+  building = true;
+  setTimeout(() => { building = false; }, 6000);      // 만일의 경우 잠금이 남지 않게
   gen++;
   info.forEach(p => p.task?.cancel?.());
   pagesEl.replaceChildren(); info = [];
@@ -79,9 +85,16 @@ async function build({ keepPage, fresh }) {
   });
   tops = [];
   if (fresh) S.fit = 'auto';
-  S.curPage = Math.min(keep, S.n);
+  const target = Math.min(keep, S.n);
+  S.curPage = target;
   if (S.fit) fit(S.fit, true); else layout();
-  scrollToPage(S.curPage);
+  if (keepPage && LY().cont && info[target - 1]) {
+    const p = info[target - 1];
+    viewerEl.scrollTop = Math.max(0, tops[target - 1] - 8 + Math.min(rel * scale(), Math.max(0, p.h * scale() - 60)));
+    viewerEl.scrollLeft = left;
+    S.curPage = target; emit('page-changed');
+  } else { S.curPage = target; scrollToPage(target); }
+  building = false;
   renderOverlays();
   emit('pages-built');
 }
@@ -173,7 +186,7 @@ export function scrollToPage(n, smooth = false) {
 function kick() {
   if (!tops.length || !S.pdf) return;
   const top = viewerEl.scrollTop, vh = viewerEl.clientHeight;
-  if (LY().cont) {
+  if (LY().cont && !building) {
     let cur = 0;
     for (let i = 0; i < tops.length; i++) {
       if (tops[i] <= top + vh * 0.35) cur = i; else break;

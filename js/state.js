@@ -48,19 +48,20 @@ export function toast(msg, kind = '') {
 }
 
 // 처리 중 오버레이 (진행률 + 취소)
-export function busy(msg = '처리 중…') {
+export function busy(msg = '처리 중…', opts = {}) {
   const root = $('#busy');
   const bar = h('div', { class: 'bar ind' }, h('i'));
   const txt = h('div', { class: 'bt' }, msg);
   const info = h('div', { class: 'binfo' });
   const cnt = h('div', { class: 'bcount', hidden: true });
-  const cancel = h('button', { class: 'btn ghost', onclick: () => { api.cancelled = true; cancel.disabled = true; txt.textContent = '취소하는 중…'; } }, '취소');
-  const box = h('div', { class: 'busybox', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'spin' }), txt, cnt, bar, info, cancel);
+  const stopBtn = opts.stoppable ? h('button', { class: 'btn primary small', title: '지금까지 처리한 것까지만 결과로 씁니다', onclick: () => { api.stopped = true; stopBtn.disabled = true; txt.textContent = '중지하는 중… 지금까지 한 것을 정리합니다'; } }, '중지 · 지금까지 것 적용') : null;
+  const cancel = h('button', { class: 'btn ghost', onclick: () => { api.cancelled = true; cancel.disabled = true; if (stopBtn) stopBtn.disabled = true; txt.textContent = '취소하는 중…'; } }, opts.stoppable ? '취소 (결과 버림)' : '취소');
+  const box = h('div', { class: 'busybox', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'spin' }), txt, cnt, bar, info, h('div', { class: 'btnrow center' }, stopBtn, cancel));
   root.replaceChildren(box);
   root.hidden = false;
   const t0 = Date.now();
   let pct = null;
-  const fmt = sec => (sec < 60 ? `${Math.max(1, Math.round(sec))}초` : `${Math.floor(sec / 60)}분 ${Math.round(sec % 60)}초`);
+  const fmt = sec => (sec < 60 ? `${Math.max(1, Math.round(sec))}초` : sec < 3600 ? `${Math.floor(sec / 60)}분 ${Math.round(sec % 60)}초` : `${Math.floor(sec / 3600)}시간 ${Math.round((sec % 3600) / 60)}분`);
   const render = () => {
     const el = (Date.now() - t0) / 1000;
     if (pct != null && pct >= 0.995) info.textContent = '마무리하는 중…';
@@ -71,7 +72,7 @@ export function busy(msg = '처리 중…') {
   const timer = setInterval(render, 500);
   render();
   const api = {
-    cancelled: false,
+    cancelled: false, stopped: false,
     set(m, p) {
       if (m) {
         txt.textContent = m;

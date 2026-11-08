@@ -17,6 +17,12 @@ PDF를 열고 · 고치고 · 서명하고 · 변환하고 · 줄이는 앱. 폰
 > 설치 파일은 코드 서명이 없어서 처음 실행할 때 Windows 보호 화면이 뜰 수 있습니다. 「추가 정보 → 실행」을 누르세요.
 > 웹앱 설치와 오프라인 기능은 HTTPS 주소에서만 동작합니다.
 
+### 폰(안드로이드 · 아이폰)
+- **안드로이드**: 크롬으로 웹 주소를 열고 「앱 설치」(또는 메뉴의 홈 화면에 추가). **아이폰**: 사파리에서 공유 → 「홈 화면에 추가」 (iOS 15 이상 권장). 카카오톡·삼성 인터넷 같은 앱 안 브라우저보다 크롬/사파리를 권장합니다.
+- 주소 끝에 글자가 붙거나(`…/PDF에서`) 소문자(`/pdf`)로 들어와도 첫 화면으로 이동합니다 (이 저장소의 `404.html` + 안내용 저장소 `GCODE77/GCODE77.github.io`).
+- 앱이 시작되지 못하면(구형 브라우저·네트워크 차단 등) 하얀 화면 대신 원인 안내 화면이 나옵니다.
+- 설치 파일(.exe)은 Windows 전용입니다. 폰·맥은 웹 주소(PWA)를 쓰세요.
+
 ## 업데이트
 
 새 버전이 나오면 앱 위쪽에 알림 막대가 뜹니다(설치 앱은 Windows 알림창도 함께).
@@ -87,13 +93,19 @@ PDF를 열고 · 고치고 · 서명하고 · 변환하고 · 줄이는 앱. 폰
 - 「교정」은 「그림으로 바꿔 완전 삭제」를 고르면 해당 쪽의 글자 선택이 사라집니다(필요하면 OCR).
 - 영문 전용 글꼴(Roboto, Lato 등)로 한글을 쓰면 한글 부분은 자동으로 기본 글꼴(Noto Sans KR)로 이어서 그려집니다. 글꼴 파일은 선택할 때 한 번 내려받고(설치 앱은 모두 들어 있음) 이후 캐시됩니다.
 - 서명 글꼴 중 한글·영문 손글씨는 선택할 때 한 번 내려받고(수 MB), 이후 캐시됩니다. 영문 필기체 글꼴은 한글을 표시하지 못합니다.
+- **문자 인식(OCR)은 백그라운드, 나머지 긴 작업은 화면을 막습니다.** OCR만 다른 문서를 열어 둔 채 진행됩니다. 변환·압축·배경 정리 같은 작업은 진행 중에 탭을 옮기면 안 됩니다. OCR이 도는 동안 그 문서의 쪽을 삭제하거나 순서를 바꾸면 결과를 자동으로 넣지 못하고(임시저장은 남음) 다시 시작하면 이어서 합니다. 임시저장은 브라우저 저장소(IndexedDB `pdfg-ocr`)에 쪽 단위로 쌓이며, 결과를 문서에 넣으면 지워집니다.
+- **스캔본 방향 판단**은 글자를 읽어 보는 방식이라 글자가 거의 없는 쪽은 확신이 없어 그대로 둡니다. **중복 쪽**의 「거의 같은 쪽까지」는 양식 서식이 같고 숫자만 다른 쪽을 같은 쪽으로 볼 수 있습니다(결과 미리보기에서 체크를 풀 수 있음).
+- **AI용 마크다운**: 제목·목록 판단은 글 크기·굵기·표현 규칙에 기반한 추정이라 문서마다 어긋날 수 있습니다. 처음에는 쪽 범위를 좁혀 결과를 확인하세요. 목록 기호(•, 1.)·「제N조」 규칙은 실제 문서로 더 검증이 필요합니다.
+- 회전·삭제·되돌리기 뒤에도 보던 쪽과 쪽 안의 위치를 유지합니다(`viewer.js`의 `build` 가 위치를 기억).
+- 설치 파일은 코드 서명이 없어 Windows 보호 화면이 뜰 수 있고, 회사 보안 프로그램이 자동 설치를 막으면 「설치 파일이 있는 폴더 열기」 안내로 수동 설치합니다.
 
 ## 새 버전 내는 방법
 
-1. 버전 번호를 올립니다: `js/update.js`의 `VERSION`, `version.json`의 `version`·`notes`, `desktop/package.json`의 `version`.
-2. 코드를 `main`에 푸시합니다(GitHub Pages로 웹앱이 자동 배포되고, `sw.js`의 캐시 이름 `pdfgongjakso-vN`도 올려 두면 오래된 캐시가 정리됩니다).
-3. `python desktop/build.py`로 설치 파일(`PDF-Gongjakso-Setup.exe`)을 만듭니다. 한글 경로 문제를 피하려고 임시 영문 폴더에서 빌드하며, Node.js와 Python(Pillow)이 필요합니다.
-4. 새 태그로 GitHub 릴리스를 만들고 설치 파일과 ZIP을 올립니다. 이미 설치된 앱들이 다음 확인 때 알림을 받습니다.
+1. 버전 번호를 올립니다: `js/update.js`의 `VERSION`, `version.json`의 `version`·`notes`, `desktop/package.json`의 `version`, `sw.js`의 캐시 이름 `pdfgongjakso-vN`(새 모듈이 생기면 `CORE` 목록에도 추가), README의 「현재 버전」.
+2. `python desktop/build.py`로 설치 파일(`PDF-Gongjakso-Setup.exe`)을 만듭니다. 한글 경로 문제를 피하려고 임시 영문 폴더(`%TEMP%\pdfg-build`)에서 빌드하며, Node.js와 Python(Pillow)이 필요합니다. 빌드 스크립트가 설치 프로그램의 한국어 문구(「OK」→「확인」 등)를 보정합니다. rcedit 단계에서 「Unable to commit changes」로 가끔 실패하니(잠시 파일 잠김) **몇 초 뒤 다시** 실행합니다. 새 설치 파일에 새 버전이 들어갔는지(`win-unpacked/resources/app.asar` 안의 `VERSION`) 확인한 뒤에만 다음으로 갑니다.
+3. `python pack.py` 같은 방식으로 오프라인 ZIP(`PDF-gongjakso-offline.zip`, `.git`·`candidates` 제외)을 만듭니다.
+4. 커밋 → `main`에 푸시(GitHub Pages로 웹앱이 자동 배포) → 새 태그로 `gh release create vX.Y.Z` (설치 파일 + ZIP 첨부, `--latest`). 네트워크가 불안정하면 푸시·릴리스를 재시도합니다. **빌드가 실패한 상태로 릴리스를 만들지 않습니다**(이전 설치 파일이 새 버전으로 올라간 적이 있음).
+5. 이미 설치된 앱들은 다음 확인 때 알림을 받습니다. 웹은 새로고침하면 바로 적용됩니다.
 
 ## 구성
 
@@ -122,8 +134,12 @@ js/
   pdfcore.js  PDF 처리(pdf-lib), 한글 글꼴 서브셋, OCR 글자 삽입
   doc.js      문서 상태·실행 취소 이력
   state.js    공용 상태·유틸리티·모달
-vendor/       pdf-lib(+암호화), pdf.js(호환 빌드), tesseract.js(+한국어/영어 데이터), JSZip, Noto Sans KR
-desktop/      Windows 설치 앱(Electron) 소스와 build.py
+vendor/       pdf-lib(+암호화), pdf.js(호환 빌드), tesseract.js(+한국어/영어 데이터), JSZip, fontkit
+vendor/fonts/ Noto Sans KR, text/(본문 수정용 글꼴 36종), sig/(서명용 손글씨·필기체)  — 모두 SIL OFL
+desktop/      Windows 설치 앱(Electron): main.js(자동 업데이트·기본 앱 등록·닫기 확인), preload.js, build.py, afterPack.js
+desktop/tests/ 설치본을 띄워 CDP로 확인하는 시험 스크립트(경로는 PC에 맞게 수정해서 사용)
+404.html      잘못된 주소를 첫 화면으로 이동
+HANDOFF.md    세션 인수인계 문서(현재 상태·설계·함정·미해결)
 실행.bat · server.ps1   설치 없이 PC에서 실행(ZIP용)
 ```
 

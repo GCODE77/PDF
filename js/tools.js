@@ -131,7 +131,7 @@ export async function convertDialog(preset = 'png') {
   const KINDS = [
     ['png', '사진 PNG', '선명한 이미지'], ['jpg', '사진 JPG', '용량이 작음'],
     ['docx', 'Word (DOCX)', '글·표·그림'], ['pptx', 'PowerPoint (PPTX)', '쪽마다 슬라이드'], ['xlsx', '엑셀 (XLSX)', '표·글을 칸으로'],
-    ['txt', '텍스트 (TXT)', '글만 추출'], ['html', '웹 페이지 (HTML)', '글·표·그림'], ['md', '마크다운 (MD)', '제목·표 구조'], ['csv', '표만 (CSV)', '표를 엑셀용으로'],
+    ['txt', '텍스트 (TXT)', '글만 추출'], ['html', '웹 페이지 (HTML)', '글·표·그림'], ['md', '마크다운 (AI용)', 'AI가 읽기 좋게 · 여러 파일'], ['csv', '표만 (CSV)', '표를 엑셀용으로'],
   ];
   const fmt = seg('fmt', KINDS, preset, v => sync(v));
   fmt.el.classList.add('seg-grid');
@@ -149,7 +149,7 @@ export async function convertDialog(preset = 'png') {
     xlsx: '쪽마다 시트 한 장. 표는 칸으로, 숫자는 숫자 칸으로 옮기고 합친 칸도 유지합니다.',
     txt: '줄·문단을 복원한 글만 저장합니다. 표는 탭으로 구분됩니다.',
     html: '글·표·그림을 담은 웹 페이지 한 파일로 저장합니다.',
-    md: '글 크기로 제목을 구분하고 표는 마크다운 표로 만듭니다.',
+    md: 'AI가 읽기 좋은 마크다운입니다. 누르면 전용 창이 열립니다 (제목·표 구조, 쪽 번호 제거, 스캔은 OCR, 여러 파일).',
     csv: '문서의 모든 표를 쉼표로 구분해 저장합니다 (엑셀에서 바로 열림).',
   };
   function sync(v) {
@@ -164,6 +164,7 @@ export async function convertDialog(preset = 'png') {
     body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, note],
     actions: [{ label: '취소' }, {
       label: '변환하여 저장', kind: 'primary', icon: 'save', run: async () => {
+        if (fmt.get() === 'md') { setTimeout(() => import('./aimd.js').then(x => x.aiMarkdownDialog()), 80); return; }
         const idx = pages.get(); if (!idx) return false;
         const f = fmt.get(), b = busy('변환하는 중…', { stoppable: true });
         try {
@@ -742,7 +743,7 @@ TOOLS.push(...TOOLS2);
   ['md', '마크다운으로 변환', '제목·표 구조를 살린 MD로 저장합니다.'], ['csv', '표만 CSV로 변환', '문서의 표를 CSV로 저장합니다.']].forEach(([k, label, desc]) =>
   TOOLS.push({ id: 'to-' + k, group: 'convert', label, icon: 'convert', color: '#0b7a9b', desc, doc: true, run: () => convertDialog(k), hidden: true }));
 export const PANEL = [
-  { label: 'PDF 파일변환', icon: 'convert', color: '#0b7a9b', kids: ['to-docx', 'to-xlsx', 'to-pptx', 'to-png', 'to-txt', 'to-html', 'to-md', 'to-csv', 'getimages'] },
+  { label: 'PDF 파일변환', icon: 'convert', color: '#0b7a9b', kids: ['aimd', 'to-docx', 'to-xlsx', 'to-pptx', 'to-png', 'to-txt', 'to-html', 'to-csv', 'getimages'] },
   { id: 'edittext', label: 'PDF 편집', kids: ['edittext', 'text', 'image', 'whiteout'] },
   { label: 'PDF 만들기', icon: 'file', color: '#e1251b', kids: ['create', 'create-blank', 'create-text', 'create-paste'] },
   { label: '주석', icon: 'note', color: '#d4a017', kids: ['note', 'highlight', 'underline', 'strike', 'pen', 'shape', 'stamp'] },

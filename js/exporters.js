@@ -16,7 +16,7 @@ export const FORMATS = {
   pptx: { ext: 'pptx', mime: PPTX_MIME, label: 'PowerPoint (PPTX)' },
   xlsx: { ext: 'xlsx', mime: XLSX_MIME, label: '엑셀 (XLSX)' },
   html: { ext: 'html', mime: 'text/html;charset=utf-8', label: '웹 페이지 (HTML)' },
-  md: { ext: 'md', mime: 'text/markdown;charset=utf-8', label: '마크다운 (MD)' },
+  md: { ext: 'md', mime: 'text/markdown;charset=utf-8', label: '마크다운 (AI용)' },
   csv: { ext: 'csv', mime: 'text/csv;charset=utf-8', label: '표만 CSV' },
   txt: { ext: 'txt', mime: 'text/plain;charset=utf-8', label: '텍스트 (TXT)' },
 };
@@ -36,13 +36,13 @@ const textBlocks = (text, W, H) => {
 };
 
 // 모든 페이지를 분석한다. 글이 없는 쪽은 ocr(index) 로 글자를 얻어 문단으로 만든다
-export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, stopped, ocr, images = true } = {}) {
+export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, stopped, ocr, images = true, imageMeta = false, color = true } = {}) {
   const out = [], imgCache = new Map();
   for (let n = 0; n < idx.length; n++) {
     if (cancelled?.()) throw new Error('취소되었습니다');
     if (stopped?.()) break;
     onProgress?.(`${n + 1} / ${idx.length} 페이지 분석 중`, n / idx.length);
-    let m = await analyzePage(pdf, lib, idx[n] + 1, { images, imgCache });
+    let m = await analyzePage(pdf, lib, idx[n] + 1, { images, imageMeta, imgCache, color });
     if (!m.textLen && ocr) {
       onProgress?.(`${n + 1} / ${idx.length} 페이지 글자 인식(OCR) 중…`, n / idx.length);
       const t = await ocr(idx[n]);

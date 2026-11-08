@@ -1,5 +1,5 @@
 {
- "version": "1.5.0",
- "notes": "문자 인식 백그라운드 처리(다른 문서 작업 가능)·병렬 고속화·중지 시 지금까지 적용·임시저장 이어서·쪽별 글자 상태, 회전 후 위치 유지",
+ "version": "1.6.0",
+ "notes": "AI용 마크다운 변환(제목·목록·표 구조, 머리글·쪽번호 제거, 스캔 OCR, 나누기, 여러 파일)",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

@@ -552,3 +552,6 @@ html.dark body{background:#14161a}
 .warnbox{background:#fff4e5;border:1px solid #f5c680;border-radius:8px;padding:8px 10px;font-size:13px}
 .btnrow.center{justify-content:center}
 @media (max-width:820px){#jobs{bottom:72px}}
+
+.chkcol{display:flex;flex-direction:column;gap:8px}
+.mono{font-family:ui-monospace,Consolas,'Malgun Gothic',monospace;font-size:12.5px;line-height:1.5}

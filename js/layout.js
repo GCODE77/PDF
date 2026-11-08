@@ -401,7 +401,7 @@ async function extractImage(page, im, cache) {
 // ======================== 페이지 분석 (공개) ========================
 // opts: { color: true, images: true, imgCache: Map }
 export async function analyzePage(pdf, lib, num, opts = {}) {
-  const { color = true, images = true } = opts;
+  const { color = true, images = true, imageMeta = false } = opts;
   const imgCache = opts.imgCache || new Map();
   const page = await pdf.getPage(num);
   const vp = page.getViewport({ scale: 1 });
@@ -496,7 +496,7 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
   // 그림
   const textLen = items.reduce((a, i) => a + i.str.trim().length, 0);
   const seen = new Set();
-  if (images) {
+  if (images || imageMeta) {
     for (const im of imgs) {
       if (im.mask || im.w < 6 || im.h < 6) continue;
       const k = [im.id, Math.round(im.x), Math.round(im.y), Math.round(im.w), Math.round(im.h)].join('|');
@@ -504,8 +504,8 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
       seen.add(k);
       const bg = im.w * im.h > 0.8 * W * Hh;
       if (bg && textLen >= 20) continue;                 // 글자가 있는 쪽의 전체 배경 그림은 버림
-      const data = await extractImage(page, im, imgCache);
-      if (!data) continue;
+      const data = imageMeta ? null : await extractImage(page, im, imgCache);
+      if (!imageMeta && !data) continue;
       blocks.push({ type: 'img', x: im.x, x1: im.x + im.w, w: im.w, h: im.h, top: im.y, bottom: im.y + im.h, data, bg });
     }
   }

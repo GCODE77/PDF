@@ -97,8 +97,8 @@ export function initMenu(ctx) {
       { t: '저장', s: 'Ctrl+S', d: 1, f: doc(ctx.save) },
       { t: '다른 이름으로 저장…', s: 'Shift+Ctrl+S', d: 1, f: doc(ctx.save) },
       { t: '내보내기 (다른 형식으로 변환)', d: 1, sub: () => [
-        ['docx', 'Word (DOCX)'], ['xlsx', '엑셀 (XLSX)'], ['pptx', 'PowerPoint (PPTX)'], ['png', '이미지 (PNG·JPG)'], ['txt', '텍스트 (TXT)'], ['html', '웹 페이지 (HTML)'], ['md', '마크다운 (MD)'], ['csv', '표만 (CSV)'],
-      ].map(([k, t]) => ({ t, f: () => convertDialog(k) })).concat(['-', { t: 'PDF 안의 이미지 꺼내기…', f: T2.extractImagesDialog }]) },
+        ['docx', 'Word (DOCX)'], ['xlsx', '엑셀 (XLSX)'], ['pptx', 'PowerPoint (PPTX)'], ['png', '이미지 (PNG·JPG)'], ['txt', '텍스트 (TXT)'], ['html', '웹 페이지 (HTML)'], ['csv', '표만 (CSV)'],
+      ].map(([k, t]) => ({ t, f: () => convertDialog(k) })).concat(['-', { t: 'AI용 마크다운 (.md · 여러 파일 가능)…', f: T2.aiMarkdownDialog }, { t: 'PDF 안의 이미지 꺼내기…', f: T2.extractImagesDialog }]) },
       { t: '공유…', d: 1, f: doc(() => $('#btnShare').click()) },
       '-',
       { t: '문서 속성…', s: 'Ctrl+D', d: 1, f: doc(T2.propsDialog) },

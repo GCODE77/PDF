@@ -69,11 +69,13 @@ async function build({ keepPage, fresh }) {
   setTimeout(() => { building = false; }, 6000);      // 만일의 경우 잠금이 남지 않게
   gen++;
   info.forEach(p => p.task?.cancel?.());
-  pagesEl.replaceChildren(); info = [];
+  const old = keepPage ? info : [];      // 깜빡임 방지: 크기가 같은 쪽은 이전 그림을 그대로 두고 새 그림이 완성되면 바꿔치기
   const sizes = await Promise.all(Array.from({ length: S.n }, (_, i) => S.pdf.getPage(i + 1).then(p => { const v = p.getViewport({ scale: 1 }); return [v.width, v.height]; })));
+  pagesEl.replaceChildren(); info = [];
   sizes.forEach(([w, hh], i) => {
     const p = { w, h: hh, rendered: false, rendering: false, gen: 0 };
-    p.canvas = h('canvas');
+    const o = old[i];
+    p.canvas = (o && o.canvas.width > 0 && Math.abs(o.w / o.h - w / hh) < 0.004) ? o.canvas : h('canvas');
     p.textEl = h('div', { class: 'textLayer' });
     p.hlEl = h('div', { class: 'hlLayer' });
     p.ovEl = h('div', { class: 'ovl' });
@@ -213,13 +215,18 @@ async function renderPage(i) {
     let ratio = Math.min(devicePixelRatio || 1, 2);
     while (vp.width * vp.height * ratio * ratio > 14e6 && ratio > 0.5) ratio -= 0.25;
     const cv = p.canvas;
-    cv.width = Math.floor(vp.width * ratio); cv.height = Math.floor(vp.height * ratio);
-    const ctx = cv.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    // 보이는 캔버스를 먼저 비우면 깜빡이므로 따로 그린 뒤 한 번에 바꿔치기
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.floor(vp.width * ratio); tmp.height = Math.floor(vp.height * ratio);
+    const ctx = tmp.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, tmp.width, tmp.height);
     const task = page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: sc * ratio }) });
     p.task = task;
     await task.promise;
-    if (g !== p.gen) return;
+    if (g !== p.gen) { tmp.width = 0; return; }
+    cv.width = tmp.width; cv.height = tmp.height;
+    cv.getContext('2d').drawImage(tmp, 0, 0);
+    tmp.width = 0;
     p.textEl.style.setProperty('--total-scale-factor', sc);
     p.textEl.style.setProperty('--scale-factor', sc);
     p.textEl.replaceChildren();

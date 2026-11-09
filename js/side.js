@@ -5,12 +5,15 @@ import * as D from './doc.js';
 import * as V from './viewer.js';
 
 let panelEl, thumbObs;
-const tcache = new Map();         // 페이지 번호 -> 썸네일 canvas (문서 바뀌면 초기화)
+let stale = new Map(), lastN = 0;
+const tcache = new Map();       // 페이지 번호 -> 썸네일 canvas (문서 바뀌면 초기화)
 
 export function initSide() {
   panelEl = $('#panel');
   on('doc-loaded', d => {
     const keep = d?.keepPage && panelEl ? panelEl.scrollTop : 0;      // 회전·삭제 뒤에도 목록 위치 유지
+    stale = (d?.keepPage && lastN === S.n) ? new Map(tcache) : new Map();   // 새 그림이 나올 때까지 이전 썸네일을 보여 깜빡임 방지
+    lastN = S.n;
     tcache.clear(); S.search = null; textCache.clear(); renderPanel();
     if (keep) panelEl.scrollTop = keep;
   });
@@ -68,6 +71,8 @@ function renderThumbs() {
 async function drawThumb(cell) {
   const n = +cell.dataset.p;
   let cv = tcache.get(n);
+  const sv = !cv && stale.get(n);
+  if (sv) { const c0 = h('canvas'); c0.width = sv.width; c0.height = sv.height; c0.getContext('2d').drawImage(sv, 0, 0); cell.querySelector('.tcv').replaceChildren(c0); }
   if (!cv) {
     const page = await S.pdf.getPage(n);
     const v1 = page.getViewport({ scale: 1 });

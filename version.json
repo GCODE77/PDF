@@ -1,5 +1,5 @@
 {
- "version": "1.6.0",
- "notes": "AI용 마크다운 변환(제목·목록·표 구조, 머리글·쪽번호 제거, 스캔 OCR, 나누기, 여러 파일)",
+ "version": "1.6.1",
+ "notes": "회전·삭제 때 화면이 깜빡이던 문제 개선",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

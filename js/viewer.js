@@ -430,9 +430,10 @@ function startRotate(e, el, o) {
   const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   let began = false;
   el.setPointerCapture(e.pointerId);
+  document.body.classList.add('rotating');
   const mv = ev => {
     if (!began) { began = true; D.snap(); }
-    let a = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
+    let a =Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
     if (ev.shiftKey) a = Math.round(a / 15) * 15;
     a = ((a + 180) % 360 + 360) % 360 - 180;
     if (Math.abs(a) < 1.5) a = 0;               // 0° 바로 근처만 살짝 달라붙게
@@ -440,7 +441,8 @@ function startRotate(e, el, o) {
     styleObj(el, o);
     if (!o._rb && o.rot) { o._rb = 1; updateBar(); }    // 처음 돌릴 때 「똑바로」 버튼 표시
   };
-  const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); if (began) updateBar(); };
+  const up = () => { document.body.classList.remove('rotating'); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); if (began) updateBar(); };
+  el.addEventListener('pointercancel', up);
   el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
 }
 

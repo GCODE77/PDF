@@ -1,5 +1,5 @@
 {
- "version": "1.6.2",
- "notes": "서명·사진을 마우스로 자유롭게 회전",
+ "version": "1.6.3",
+ "notes": "회전 손잡이에 회전 모양 마우스 커서",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

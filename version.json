@@ -1,5 +1,5 @@
 {
- "version": "1.6.1",
- "notes": "회전·삭제 때 화면이 깜빡이던 문제 개선",
+ "version": "1.6.2",
+ "notes": "서명·사진을 마우스로 자유롭게 회전",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

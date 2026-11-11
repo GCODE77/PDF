@@ -162,6 +162,8 @@ body.dragging::after{content:"여기에 놓으면 열립니다";position:fixed;i
 .hd{display:none;position:absolute;width:13px;height:13px;background:#fff;border:2px solid var(--blue);border-radius:50%;z-index:2;touch-action:none}
 .hd::after{content:"";position:absolute;inset:-12px}
 .sel .hd{display:block}
+.hd.rot{left:calc(50% - 8px);top:-34px;cursor:grab;background:var(--blue);border-color:#fff}
+.hd.rot::before{content:"";position:absolute;left:50%;top:100%;width:2px;height:20px;margin-left:-1px;background:var(--blue)}
 .hd.nw{left:-8px;top:-8px;cursor:nwse-resize}.hd.ne{right:-8px;top:-8px;cursor:nesw-resize}
 .hd.sw{left:-8px;bottom:-8px;cursor:nesw-resize}.hd.se{right:-8px;bottom:-8px;cursor:nwse-resize}
 

@@ -233,8 +233,14 @@ export async function flatten(bytes, overlays, imgs) {
         const d = imgs[o.img];
         if (!d) continue;
         if (!imgCache[o.img]) imgCache[o.img] = /^data:image\/png/.test(d) ? await doc.embedPng(dataToBytes(d)) : await doc.embedJpg(dataToBytes(d));
-        const [px, py] = g.d2p(o.x, o.y + o.h);
-        page.drawImage(imgCache[o.img], { x: px, y: py, width: o.w, height: o.h, rotate: ang, opacity: o.opacity ?? 1 });
+        let [px, py] = g.d2p(o.x, o.y + o.h), rt = ang;
+        if (o.rot) {      // 사용자가 돌린 각도: 개체 중심을 기준으로 회전 (화면은 시계방향, PDF는 반시계)
+          const phi = (g.r - o.rot) * Math.PI / 180, [cx, cy] = g.d2p(o.x + o.w / 2, o.y + o.h / 2);
+          px = cx + (-o.w / 2) * Math.cos(phi) + (o.h / 2) * Math.sin(phi);
+          py = cy + (-o.w / 2) * Math.sin(phi) - (o.h / 2) * Math.cos(phi);
+          rt = degrees(g.r - o.rot);
+        }
+        page.drawImage(imgCache[o.img], { x: px, y: py, width: o.w, height: o.h, rotate: rt, opacity: o.opacity ?? 1 });
       } else if (o.type === 'ink') {
         const p = o.pts.map(([x, y]) => g.d2p(x, y));
         for (let i = 1; i < p.length; i++)

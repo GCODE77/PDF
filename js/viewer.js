@@ -343,6 +343,7 @@ function mountObj(pi, o) {
   el.dataset.id = o.id; el.dataset.page = pi;
   if (['image', 'whiteout', 'highlight', 'redact', 'field', 'shape'].includes(o.type))
     ['nw', 'ne', 'sw', 'se'].forEach(c => el.append(h('b', { class: 'hd ' + c, 'data-c': c })));
+  if (o.type === 'image') el.append(h('b', { class: 'hd rot', title: '끌어서 회전 (Shift: 15° 단위)' }));
   info[pi].ovEl.append(el);
   styleObj(el, o);
   bindObj(el, o, pi);
@@ -380,7 +381,7 @@ function styleObj(el, o) {
       }
       el.innerHTML = `<svg viewBox="0 0 ${w} ${hh}" preserveAspectRatio="none" width="100%" height="100%" style="overflow:visible">${inner}</svg>`;
     }
-    if (o.type === 'image') el.firstChild.style.opacity = o.opacity ?? 1;
+    if (o.type === 'image') { el.firstChild.style.opacity = o.opacity ?? 1; st.transform = o.rot ? `rotate(${o.rot}deg)` : ''; }
     if (o.type === 'ink') {
       const d = o.pts.map(([x, y], i) => (i ? 'L' : 'M') + (x - o.x).toFixed(2) + ' ' + (y - o.y).toFixed(2)).join(' ') + (o.pts.length === 1 ? ' l0.01 0' : '');
       el.innerHTML = `<svg viewBox="0 0 ${o.w} ${o.h}" preserveAspectRatio="none" width="100%" height="100%"><path d="${d}" fill="none" stroke="${o.color}" stroke-width="${o.sw}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -391,6 +392,7 @@ function styleObj(el, o) {
 function bindObj(el, o, pi) {
   el.addEventListener('pointerdown', e => {
     if (el.isContentEditable) return;
+    if (e.target.classList.contains('rot')) { startRotate(e, el, o); return; }
     if (e.target.classList.contains('hd')) { startResize(e, el, o, e.target.dataset.c); return; }
     if (S.tool !== 'select') return;
     e.stopPropagation();
@@ -422,20 +424,43 @@ function startDrag(e, el, o, wasSel) {
   el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
 }
 
-function startResize(e, el, o, c) {
+// 마우스(손가락)로 각도 조절: 개체 중심 기준으로 포인터 방향을 따라 회전
+function startRotate(e, el, o) {
   e.stopPropagation(); e.preventDefault();
-  const k = scale(), sx = e.clientX, sy = e.clientY, { x, y, w, hh = o.h } = { x: o.x, y: o.y, w: o.w, hh: o.h };
-  const ratio = o.h / o.w, keep = o.type === 'image';
+  const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   let began = false;
   el.setPointerCapture(e.pointerId);
   const mv = ev => {
     if (!began) { began = true; D.snap(); }
-    let dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k;
+    let a = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
+    if (ev.shiftKey) a = Math.round(a / 15) * 15;
+    a = ((a + 180) % 360 + 360) % 360 - 180;
+    if (Math.abs(a) < 1.5) a = 0;               // 0° 바로 근처만 살짝 달라붙게
+    o.rot = Math.round(a * 10) / 10;
+    styleObj(el, o);
+    if (!o._rb && o.rot) { o._rb = 1; updateBar(); }    // 처음 돌릴 때 「똑바로」 버튼 표시
+  };
+  const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); if (began) updateBar(); };
+  el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
+}
+
+function startResize(e, el, o, c) {
+  e.stopPropagation(); e.preventDefault();
+  const k = scale(), sx = e.clientX, sy = e.clientY, { x, y, w, hh = o.h } = { x: o.x, y: o.y, w: o.w, hh: o.h };
+  const ratio = o.h / o.w, keep = o.type === 'image';
+  const th = (o.rot || 0) * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th);
+  let began = false;
+  el.setPointerCapture(e.pointerId);
+  const mv = ev => {
+    if (!began) { began = true; D.snap(); }
+    const sdx = (ev.clientX - sx) / k, sdy = (ev.clientY - sy) / k;
+    const dx = sdx * cs + sdy * sn, dy = -sdx * sn + sdy * cs;      // 회전된 개체의 자기 축 기준 이동량
     let nw = c.includes('e') ? w + dx : w - dx;
     nw = Math.max(10, nw);
     let nh = keep ? nw * ratio : Math.max(10, c.includes('s') ? hh + dy : hh - dy);
-    o.w = nw; o.h = nh;
-    o.x = c.includes('e') ? x : x + w - nw; o.y = c.includes('s') ? y : y + hh - nh;
+    const lx = (c.includes('e') ? 1 : -1) * (nw - w) / 2, ly = (c.includes('s') ? 1 : -1) * (nh - hh) / 2;   // 반대쪽 모서리 고정
+    const ncx = x + w / 2 + lx * cs - ly * sn, ncy = y + hh / 2 + lx * sn + ly * cs;
+    o.w = nw; o.h = nh; o.x = ncx - nw / 2; o.y = ncy - nh / 2;
     styleObj(el, o);
   };
   const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); };
@@ -762,6 +787,7 @@ function updateBar() {
       parts.push(stepper('굵기', o.sw, 1, 20, 1, live(v => { o.sw = v; S.style.inkW = v; })));
     } else if (o.type === 'image') {
       parts.push(h('label', { class: 'rng' }, '투명도', h('input', { type: 'range', min: 10, max: 100, value: (o.opacity ?? 1) * 100, oninput: e => { o.opacity = e.target.value / 100; styleObj(el, o); }, onchange: () => { S.dirty = true; } })));
+      if (o.rot) parts.push(h('button', { class: 'btn small', title: '회전을 풀어 똑바로', onclick: live(() => { o.rot = 0; }) }, '똑바로'));
       parts.push(h('button', { class: 'btn small', onclick: () => removeImgBg(o) }, '흰 배경 지우기'));
       const grow = k => live(() => { const cx = o.x + o.w / 2, cy = o.y + o.h / 2; o.w *= k; o.h *= k; o.x = cx - o.w / 2; o.y = cy - o.h / 2; });
       parts.push(h('button', { class: 'btn small', title: '작게', onclick: grow(0.9) }, '작게'), h('button', { class: 'btn small', title: '크게', onclick: grow(1.1) }, '크게'));

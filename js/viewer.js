@@ -39,6 +39,7 @@ export async function initViewer() {
     if (S.tool === 'hand') startPan(e);
   });
   addEventListener('pointerup', () => { pointerDown = false; });
+  initBlankDragSelect();
   viewerEl.addEventListener('wheel', e => {
     if (autoTimer && !e.ctrlKey) toggleAutoScroll(false);
     if (!e.ctrlKey) return;
@@ -50,6 +51,50 @@ export async function initViewer() {
   addEventListener('keydown', onKey);
   on('tool', updateBar);
   on('selection', updateBar);
+}
+
+// 글자 드래그 선택 보정: 글자 위가 아니라 빈 곳(여백·글자 사이)에서 시작해도 가장 가까운 글자부터 선택되게 한다.
+// 기본 동작은 빈 곳에서 시작하면 선택이 아예 안 되거나 끊긴다.
+function initBlankDragSelect() {
+  const nearest = (tl, x, y) => {
+    let best = null, bd = 1e12;
+    for (const s of tl.children) {
+      if (s.tagName !== 'SPAN' || !s.firstChild || s.firstChild.nodeType !== 3 || !s.textContent) continue;
+      const r = s.getBoundingClientRect(); if (!r.width && !r.height) continue;
+      const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+      const d = dy * dy * 4 + dx * dx;                 // 같은 줄(세로 겹침)을 우선
+      if (d < bd) { bd = d; best = { s, r }; }
+    }
+    if (!best) return null;
+    const { s, r } = best, n = s.firstChild, len = n.textContent.length;
+    let off;
+    if (x <= r.left) off = 0; else if (x >= r.right) off = len;
+    else {
+      const cp = document.caretPositionFromPoint?.(x, y);
+      if (cp && s.contains(cp.offsetNode)) off = cp.offset;
+      else { const cr = document.caretRangeFromPoint?.(x, y); off = cr && s.contains(cr.startContainer) ? cr.startOffset : Math.round((x - r.left) / r.width * len); }
+    }
+    return { node: n, off: Math.max(0, Math.min(len, off)) };
+  };
+  pagesEl.addEventListener('mousedown', e => {
+    if (e.button !== 0 || !e.target.classList?.contains('textLayer')) return;     // 글자 위에서 시작하면 기본 동작
+    const tl0 = e.target, a = nearest(tl0, e.clientX, e.clientY);
+    if (!a) return;
+    e.preventDefault();
+    const sel = getSelection(); sel.removeAllRanges();
+    let moved = false;
+    const mv = ev => {
+      if (!(ev.buttons & 1)) { up(); return; }
+      const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.textLayer') || tl0;
+      const f = nearest(under, ev.clientX, ev.clientY) || nearest(tl0, ev.clientX, ev.clientY);
+      if (!f) return;
+      moved = true;
+      sel.setBaseAndExtent(a.node, a.off, f.node, f.off);
+    };
+    const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); if (!moved) sel.removeAllRanges(); };
+    addEventListener('mousemove', mv); addEventListener('mouseup', up);
+  });
 }
 
 function onKey(e) {

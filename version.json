@@ -1,5 +1,5 @@
 {
- "version": "1.6.3",
- "notes": "회전 손잡이에 회전 모양 마우스 커서",
+ "version": "1.6.4",
+ "notes": "빈 곳에서 시작해도 글자 드래그 선택이 되도록 개선",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

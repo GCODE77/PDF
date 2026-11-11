@@ -138,8 +138,7 @@ body.dragging::after{content:"여기에 놓으면 열립니다";position:fixed;i
 .pno{position:absolute;left:100%;top:6px;margin-left:8px;font-size:11px;color:#777}
 .textLayer{position:absolute;inset:0;overflow:clip;line-height:1;text-size-adjust:none;transform-origin:0 0;z-index:1}
 .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
-.textLayer ::selection{background:#1473e64d}
-.tool-hand .textLayer{pointer-events:none}
+.textLayer ::selection{background:#1473e64d}.tool-hand .textLayer{pointer-events:none}
 .tool-hand .page{user-select:none}
 .hlLayer{position:absolute;inset:0;pointer-events:none;z-index:2}
 .hlLayer i{position:absolute;background:#ffe14d99;mix-blend-mode:multiply;border-radius:2px}

@@ -440,7 +440,7 @@ kbd{background:#f1f3f6;border:1px solid #cfd3d9;border-radius:6px;padding:2px 8p
 .tool-edittext .ovl,.tool-edittext .textLayer{pointer-events:none}
 .eline{position:absolute;border:1px dashed rgba(20,115,230,.5);background:rgba(20,115,230,.05);cursor:text;border-radius:2px;box-sizing:border-box}
 .eline:hover{background:rgba(20,115,230,.18);border-color:#1473e6}
-.eline.editing{border:1.5px solid #1473e6;outline:none;white-space:pre;overflow:visible;z-index:5;box-shadow:0 0 0 3px #1473e633;font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;padding:0}
+.eline.editing{border:1.5px solid #1473e6;outline:none;white-space:pre;overflow:visible;z-index:5;box-shadow:0 0 0 3px #1473e633;font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;padding:0;caret-color:#e1251b;cursor:text;user-select:text;-webkit-user-select:text}
 /* 왼쪽 아래 크기 조절 점이 색 견본(.sw) 스타일과 겹쳐 항상 보이던 문제 */
 .hd.sw{display:none;width:13px;height:13px;margin:0;padding:0;background:#fff;border:2px solid var(--blue);border-radius:50%;position:absolute}
 .sel .hd.sw{display:block}

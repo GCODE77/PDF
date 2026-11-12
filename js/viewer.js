@@ -665,12 +665,12 @@ async function buildEditLayer(i) {
       if (done.includes(key)) continue;
       const el = h('div', { class: 'eline', title: '눌러서 수정' });
       Object.assign(el.style, { left: (ln.x - 1) * k + 'px', top: ln.top * k + 'px', width: (ln.w + 2) * k + 'px', height: ln.h * k + 'px' });
-      el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); startLineEdit(i, ln, key, el); });
+      el.addEventListener('pointerdown', e => { e.stopPropagation(); if (el.classList.contains('editing')) return; e.preventDefault(); startLineEdit(i, ln, key, el, e); });
       p.editEl.append(el);
     }
   } catch (e) { console.warn('편집 영역 만들기 실패', e); }
 }
-function startLineEdit(i, ln, key, el) {
+function startLineEdit(i, ln, key, el, ev0) {
   const p = info[i], k = scale();
   const cvk = p.canvas.width / p.w;
   const sm = p.canvas.width ? sampleRegion(p.canvas, (ln.x - 1) * cvk, ln.top * cvk, (ln.w + 2) * cvk, ln.h * cvk) : { bg: '#ffffff', ink: '#000000' };
@@ -680,8 +680,18 @@ function startLineEdit(i, ln, key, el) {
   el.textContent = ln.text;
   Object.assign(el.style, { fontSize: ln.size * k + 'px', lineHeight: ln.h * k + 'px', color: sm.ink, background: sm.bg, fontWeight: ln.bold ? 700 : 400, fontStyle: ln.italic ? 'italic' : 'normal', minWidth: (ln.w + 2) * k + 'px', width: 'auto' });
   el.focus();
-  const r = document.createRange(); r.selectNodeContents(el);
-  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  // 누른 자리에 커서(깜빡이는 세로선)를 놓는다. (예전에는 전체 선택이라 커서가 보이지 않았음) 전체 선택은 Ctrl+A
+  const sel = getSelection(); sel.removeAllRanges();
+  const r = document.createRange();
+  let placed = false;
+  if (ev0) {
+    const cp = document.caretPositionFromPoint?.(ev0.clientX, ev0.clientY);
+    if (cp && el.contains(cp.offsetNode)) { r.setStart(cp.offsetNode, cp.offset); placed = true; }
+    else { const cr = document.caretRangeFromPoint?.(ev0.clientX, ev0.clientY); if (cr && el.contains(cr.startContainer)) { r.setStart(cr.startContainer, cr.startOffset); placed = true; } }
+  }
+  if (!placed) { r.selectNodeContents(el); r.collapse(false); }
+  r.collapse(true);
+  sel.addRange(r);
   let cancelled = false, confirmed = false;
   const finish = async () => {
     el.removeEventListener('blur', finish);

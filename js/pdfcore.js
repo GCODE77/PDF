@@ -204,28 +204,33 @@ export async function flatten(bytes, overlays, imgs) {
         const fid = o.font || 'noto', font = kr[keyOf(o)], faux = o.bold && !hasBold(fid);
         const base = baseOf(fid, o.bold && hasBold(fid));
         const pad = o.bg ? 4 : 2;
+        // 사용자가 돌린 각도(화면 시계방향): 상자 중심을 기준으로 모든 점을 돌리고, 글자 방향도 같이 돌린다
+        const rotT = o.rot || 0, th = rotT * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th);
+        const ccx = o.x + o.w / 2, ccy = o.y + o.h / 2;
+        const R = (x, y) => (rotT ? [ccx + (x - ccx) * cs - (y - ccy) * sn, ccy + (x - ccx) * sn + (y - ccy) * cs] : [x, y]);
+        const angT = rotT ? degrees(g.r - rotT) : ang;
         if (o.bg) {
-          const [px, py] = g.d2p(o.x, o.y + o.h);
-          page.drawRectangle({ x: px, y: py, width: o.w, height: o.h, rotate: ang, color: hex(o.bg), borderColor: hex('#e0c200'), borderWidth: 0.5 });
+          const [px, py] = g.d2p(...R(o.x, o.y + o.h));
+          page.drawRectangle({ x: px, y: py, width: o.w, height: o.h, rotate: angT, color: hex(o.bg), borderColor: hex('#e0c200'), borderWidth: 0.5 });
         }
         o.text.split('\n').forEach((line, i) => {
           if (!line.trim()) return;
           const bx = o.x + pad, by = o.y + pad + i * LH * o.size + base * o.size;
           let cx = bx;
           for (const sg of splitFont(line, font, o.bold && hasBold(fid))) {
-            const [px, py] = g.d2p(cx, by);
-            const opt = { x: px, y: py, size: o.size, font: sg.font, color: hex(o.color), rotate: ang };
+            const [px, py] = g.d2p(...R(cx, by));
+            const opt = { x: px, y: py, size: o.size, font: sg.font, color: hex(o.color), rotate: angT };
             if (o.italic) opt.ySkew = degrees(12);
             page.drawText(sg.text, opt);
-            if (faux) { const [qx, qy] = g.d2p(cx + o.size * 0.025, by); page.drawText(sg.text, { ...opt, x: qx, y: qy }); }
+            if (faux) { const [qx, qy] = g.d2p(...R(cx + o.size * 0.025, by)); page.drawText(sg.text, { ...opt, x: qx, y: qy }); }
             cx += sg.font.widthOfTextAtSize(sg.text, o.size);
           }
           if (o.underline || o.strike) {
-            const w = cx - bx, th = Math.max(0.6, o.size * 0.06);
+            const w = cx - bx, lth = Math.max(0.6, o.size * 0.06);
             for (const dy of [o.underline ? o.size * 0.14 : null, o.strike ? -o.size * 0.3 : null]) {
               if (dy == null) continue;
-              const a = g.d2p(bx, by + dy), c = g.d2p(bx + w, by + dy);
-              page.drawLine({ start: { x: a[0], y: a[1] }, end: { x: c[0], y: c[1] }, thickness: th, color: hex(o.color) });
+              const a = g.d2p(...R(bx, by + dy)), c = g.d2p(...R(bx + w, by + dy));
+              page.drawLine({ start: { x: a[0], y: a[1] }, end: { x: c[0], y: c[1] }, thickness: lth, color: hex(o.color) });
             }
           }
         });

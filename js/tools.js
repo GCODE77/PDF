@@ -140,13 +140,16 @@ export async function convertDialog(preset = 'png') {
   dpi.value = 150;
   const ocr = h('input', { type: 'checkbox', checked: true });
   const pics = h('input', { type: 'checkbox', checked: true });
+  const whole = h('input', { type: 'checkbox' });
   const imgRow = row('화질', dpi);
-  const txtRow = row('옵션', h('label', { class: 'chk' }, ocr, '글자가 없는 페이지는 OCR로 인식 (한국어+영어)'), h('label', { class: 'chk' }, pics, '그림 포함'));
+  const lay = seg('dlay', [['fixed', '원본 위치 그대로', '글·표·그림을 쪽 위에 고정'], ['flow', '편집하기 편하게', '일반 문서처럼 이어서 배치']], 'fixed');
+  const layRow = row('Word 배치', lay.el);
+  const txtRow = row('옵션', h('label', { class: 'chk' }, ocr, '글자가 없는 페이지는 OCR로 인식 (한국어+영어)'), h('label', { class: 'chk' }, pics, '그림 포함'), h('label', { class: 'chk' }, whole, '도면·그림이 큰 쪽은 쪽 전체를 사진으로 (글자는 편집 안 됨)'));
   const note = h('p', { class: 'muted small' });
   const NOTES = {
-    docx: '글꼴·크기·색·정렬을 최대한 살리고, 선이 있는 표는 Word 표로, 그림은 그대로 옮깁니다.',
+    docx: '글꼴·크기·색·정렬을 최대한 살리고, 선이 있는 표는 Word 표로, 그림·도면은 그림으로 옮깁니다.',
     pptx: '쪽마다 슬라이드 한 장으로 만들고, 글상자·표·그림을 원래 위치에 배치합니다.',
-    xlsx: '쪽마다 시트 한 장. 표는 칸으로, 숫자는 숫자 칸으로 옮기고 합친 칸도 유지합니다.',
+    xlsx: '쪽마다 시트 한 장. 원래 위치·칸 크기에 맞춰 표는 칸으로, 숫자는 숫자 칸으로, 그림·도면은 그림으로 옮깁니다.',
     txt: '줄·문단을 복원한 글만 저장합니다. 표는 탭으로 구분됩니다.',
     html: '글·표·그림을 담은 웹 페이지 한 파일로 저장합니다.',
     md: 'AI가 읽기 좋은 마크다운입니다. 누르면 전용 창이 열립니다 (제목·표 구조, 쪽 번호 제거, 스캔은 OCR, 여러 파일).',
@@ -154,14 +157,15 @@ export async function convertDialog(preset = 'png') {
   };
   function sync(v) {
     const img = v === 'png' || v === 'jpg';
-    imgRow.hidden = !img; txtRow.hidden = img;
-    pics.parentElement.hidden = !(v === 'docx' || v === 'pptx' || v === 'html');
+    imgRow.hidden = !img; txtRow.hidden = img; layRow.hidden = v !== 'docx';
+    pics.parentElement.hidden = !(v === 'docx' || v === 'pptx' || v === 'html' || v === 'xlsx');
+    whole.parentElement.hidden = pics.parentElement.hidden;
     note.textContent = img ? '여러 페이지는 ZIP 한 개로 묶어 저장합니다.' : NOTES[v] + ' 스캔·복잡한 편집 문서는 원본과 조금 다를 수 있습니다.';
   }
   sync(preset);
   modal({
     title: 'PDF 파일 변환', wide: true,
-    body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, note],
+    body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, layRow, note],
     actions: [{ label: '취소' }, {
       label: '변환하여 저장', kind: 'primary', icon: 'save', run: async () => {
         if (fmt.get() === 'md') { setTimeout(() => import('./aimd.js').then(x => x.aiMarkdownDialog()), 80); return; }
@@ -193,7 +197,7 @@ export async function convertDialog(preset = 'png') {
             let w = null;
             const lib = await D.getPdfjs();
             const r = await X.exportPages(f, S.pdf, lib, idx, {
-              title: base, images: pics.checked, cancelled: () => b.cancelled, stopped: () => b.stopped, onProgress: (t, p) => b.set(t, p),
+              title: base, images: pics.checked, layout: lay.get(), wholePage: whole.checked, cancelled: () => b.cancelled, stopped: () => b.stopped, onProgress: (t, p) => b.set(t, p),
               ocr: ocr.checked ? async i => { w ||= await ocrWorker('kor+eng'); return (await ocrPage(w, i)).text; } : null,
             });
             download(r.blob, base + '.' + r.ext);

@@ -35,7 +35,7 @@ export async function initViewer() {
   new ResizeObserver(() => { if (S.fit && S.pdf) fit(S.fit, true); else kick(); }).observe(viewerEl);
   viewerEl.addEventListener('pointerdown', e => {
     pointerDown = true;
-    if (!e.target.closest('.obj, #objbar, .hd')) deselect();
+    if (!e.target.closest('.obj, #objbar, .hd, .rotx')) deselect();
     if (S.tool === 'hand') startPan(e);
   });
   addEventListener('pointerup', () => { pointerDown = false; });
@@ -371,6 +371,7 @@ function renderOverlays() {
     (S.overlays[i] || []).forEach(o => mountObj(i, o));
   });
   if (S.selected) { const el = objEl(S.selected.id); if (el) el.classList.add('sel'); else S.selected = null; }
+  rotEl = null; syncRotHandle();
   updateBar();
 }
 
@@ -407,6 +408,8 @@ function styleObj(el, o) {
     if (o.bg) st.border = Math.max(1, 0.5 * k) + 'px solid #e0c200';
     st.minWidth = o.size * 0.6 * k + 'px';
     if (!el.isContentEditable) { o.w = el.offsetWidth / k; o.h = el.offsetHeight / k; }
+    st.transform = o.rot ? `rotate(${o.rot}deg)` : '';
+    if (S.selected?.id === o.id) syncRotHandle();
   } else {
     st.width = o.w * k + 'px'; st.height = o.h * k + 'px';
     if (o.type === 'whiteout' || o.type === 'highlight' || o.type === 'redact') st.background = (o.type === 'highlight' && o.ls) ? 'transparent' : o.color;
@@ -469,6 +472,23 @@ function startDrag(e, el, o, wasSel) {
   el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
 }
 
+// 글자 상자는 안에 손잡이를 넣을 수 없어서(편집 중 글자와 섞임) 바깥에 따로 둔다
+let rotEl = null;
+function syncRotHandle() {
+  pagesEl.querySelectorAll('.rotx').forEach(e => e.remove());
+  rotEl = null;
+  const f = S.selected && findObj(S.selected.id);
+  if (!f || f.o.type !== 'text') return;
+  const el = objEl(f.o.id), o = f.o;
+  if (!el || el.isContentEditable || !info[f.pi]) return;
+  const w = el.offsetWidth, hh = el.offsetHeight, th = (o.rot || 0) * Math.PI / 180;
+  const cx = el.offsetLeft + w / 2, cy = el.offsetTop + hh / 2, d = hh / 2 + 28;
+  rotEl = h('b', { class: 'rotx', title: '끌어서 회전 (Shift: 15° 단위)' });
+  rotEl.style.left = (cx + d * Math.sin(th) - 8) + 'px'; rotEl.style.top = (cy - d * Math.cos(th) - 8) + 'px';
+  rotEl.addEventListener('pointerdown', e => startRotate(e, el, o));
+  info[f.pi].ovEl.append(rotEl);
+}
+
 // 마우스(손가락)로 각도 조절: 개체 중심 기준으로 포인터 방향을 따라 회전
 function startRotate(e, el, o) {
   e.stopPropagation(); e.preventDefault();
@@ -518,12 +538,14 @@ export function select(id, pi) {
   $$('.obj.sel', pagesEl).forEach(e => e.classList.remove('sel'));
   S.selected = { id, page: pi };
   objEl(id)?.classList.add('sel');
+  syncRotHandle();
   emit('selection');
 }
 export function deselect() {
   if (!S.selected) return;
   $$('.obj.sel', pagesEl).forEach(e => e.classList.remove('sel'));
   S.selected = null;
+  syncRotHandle();
   emit('selection');
 }
 export function removeSelected() {
@@ -533,6 +555,7 @@ export function removeSelected() {
   f.list.splice(f.list.indexOf(f.o), 1);
   objEl(f.o.id)?.remove();
   S.selected = null;
+  syncRotHandle();
   emit('selection');
 }
 
@@ -540,6 +563,7 @@ function editText(el, o) {
   select(o.id, +el.dataset.page);
   el.contentEditable = 'true';
   el.classList.add('editing');
+  syncRotHandle();
   el.focus();
   const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
   const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
@@ -559,6 +583,7 @@ function editText(el, o) {
     delete o._fresh;
     el.textContent = o.text;
     styleObj(el, o);
+    syncRotHandle();
   };
   el.addEventListener('paste', paste);
   el.addEventListener('blur', done);

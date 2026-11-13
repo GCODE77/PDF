@@ -203,7 +203,7 @@ function walkOps(ol, lib, vp, pageW, pageH) {
   const O = lib.OPS;
   const stack = [];
   let ctm = vp.transform.slice();
-  const H = [], V = [], imgs = [];
+  const H = [], V = [], imgs = [], fig = [];      // fig: 곡선·비스듬한 선(도면·로고 같은 벡터 그림) 조각의 바깥 상자
   const map = (x, y) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]];
   const addSeg = (p, q) => {
     const dx = Math.abs(p[0] - q[0]), dy = Math.abs(p[1] - q[1]);
@@ -228,6 +228,14 @@ function walkOps(ol, lib, vp, pageW, pageH) {
     }
     for (const s of subs) {
       const p = s.pts;
+      if (p.length >= 2) {
+        let diag = !!s.curve;
+        if (!diag) for (let k = 1; k < p.length && !diag; k++) { const dx = Math.abs(p[k][0] - p[k - 1][0]), dy = Math.abs(p[k][1] - p[k - 1][1]); if (dx > 0.8 && dy > 0.8) diag = true; }
+        if (diag) {
+          const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+          fig.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+        }
+      }
       if (s.curve || p.length < 2) continue;
       const rect = (p.length === 4 || (p.length === 5 && Math.hypot(p[0][0] - p[4][0], p[0][1] - p[4][1]) < 0.5)) && (s.closed || p.length === 5)
         && ((Math.abs(p[0][0] - p[1][0]) < 0.8 && Math.abs(p[1][1] - p[2][1]) < 0.8) || (Math.abs(p[0][1] - p[1][1]) < 0.8 && Math.abs(p[1][0] - p[2][0]) < 0.8));
@@ -262,7 +270,52 @@ function walkOps(ol, lib, vp, pageW, pageH) {
       imgs.push({ id: typeof a[0] === 'string' ? a[0] : null, inline: f === O.paintInlineImageXObject ? a[0] : null, mask, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
     }
   }
-  return { H, V, imgs };
+  return { H, V, imgs, fig };
+}
+
+// 벡터 그림 조각들을 가까운 것끼리 묶어 「그림 영역」으로 만든다 (도면·로고·도표의 곡선 등)
+function findFigures(pieces, W, Hh) {
+  if (pieces.length < 4) return [];
+  const GAP = 10, CELL = 24;
+  const parent = pieces.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const grid = new Map();
+  pieces.forEach((b, i) => {
+    const x0 = Math.floor((b[0] - GAP) / CELL), x1 = Math.floor((b[2] + GAP) / CELL), y0 = Math.floor((b[1] - GAP) / CELL), y1 = Math.floor((b[3] + GAP) / CELL);
+    for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) {
+      const k = gx + ',' + gy, g = grid.get(k);
+      if (!g) { grid.set(k, [i]); continue; }
+      for (const j of g) {
+        const o = pieces[j];
+        if (o[0] - GAP <= b[2] && o[2] + GAP >= b[0] && o[1] - GAP <= b[3] && o[3] + GAP >= b[1]) { const a = find(i), c = find(j); if (a !== c) parent[a] = c; }
+      }
+      g.push(i);
+    }
+  });
+  const groups = new Map();
+  pieces.forEach((b, i) => {
+    const r = find(i), g = groups.get(r);
+    if (!g) groups.set(r, { x0: b[0], y0: b[1], x1: b[2], y1: b[3], n: 1 });
+    else { g.x0 = Math.min(g.x0, b[0]); g.y0 = Math.min(g.y0, b[1]); g.x1 = Math.max(g.x1, b[2]); g.y1 = Math.max(g.y1, b[3]); g.n++; }
+  });
+  let list = [...groups.values()].filter(g => g.n >= 6 || ((g.x1 - g.x0) >= 24 && (g.y1 - g.y0) >= 24 && g.n >= 3));
+  list = list.map(g => ({ ...g, x0: Math.max(0, g.x0 - 3), y0: Math.max(0, g.y0 - 3), x1: Math.min(W, g.x1 + 3), y1: Math.min(Hh, g.y1 + 3) }))
+    .filter(g => g.x1 - g.x0 > 4 && g.y1 - g.y0 > 4);
+  list.sort((a, b) => (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0));
+  return list.slice(0, 16);
+}
+
+// 쪽의 한 영역을 그림(PNG)으로 떠낸다
+async function renderRegion(page, x, y, w, h, maxPx = 2600) {
+  const k = Math.max(0.5, Math.min(4, maxPx / Math.max(w, h)));
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.ceil(w * k)); cv.height = Math.max(1, Math.ceil(h * k));
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  try { await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: k, offsetX: -x * k, offsetY: -y * k }) }).promise; } catch { return null; }
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const res = blob ? { data: new Uint8Array(await blob.arrayBuffer()), mime: 'image/png', pw: cv.width, ph: cv.height, ext: 'png' } : null;
+  cv.width = 0; cv.height = 0;
+  return res;
 }
 
 function mergeLines(list, key, a, b) {
@@ -408,7 +461,19 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
   const W = vp.width, Hh = vp.height;
   const items = await pageItems(page, lib, vp);
   const ol = await page.getOperatorList();
-  const { H, V, imgs } = walkOps(ol, lib, vp, W, Hh);
+  const { H, V, imgs, fig } = walkOps(ol, lib, vp, W, Hh);
+  const noFig = opts.noFigures || (!images && !imageMeta);
+  const textLen0 = items.reduce((a, i) => a + i.str.trim().length, 0);
+  let figs = findFigures(fig, W, Hh);
+  const figArea = figs.reduce((a, g) => a + (g.x1 - g.x0) * (g.y1 - g.y0), 0);
+  // 글자가 거의 없고 벡터 그림이 쪽을 크게 차지하면(도면) 쪽 전체를 한 장의 그림으로 가져온다
+  if (((textLen0 < 20 && figArea >= 0.2 * W * Hh) || (opts.wholePage && figArea >= 0.1 * W * Hh)) && figs.length && !noFig) {
+    const data = imageMeta ? null : await renderRegion(page, 0, 0, W, Hh, 3400);
+    page.cleanup();
+    if (data || imageMeta) return { w: W, h: Hh, blocks: [{ type: 'img', fig: true, x: 0, x1: W, w: W, h: Hh, top: 0, bottom: Hh, data }], items, textLen: textLen0, lines: [], pageImage: true };
+  }
+  if (noFig) figs = [];
+  const inFig = it => figs.some(g => it.x + it.w / 2 >= g.x0 && it.x + it.w / 2 <= g.x1 && it.by - it.size * 0.3 >= g.y0 && it.by - it.size * 0.3 <= g.y1);
   let cv = null;
   if (color) {
     try {
@@ -428,6 +493,7 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
   const free = [];
   const cellItems = new Map();
   for (const it of items) {
+    if (figs.length && inFig(it)) continue;               // 그림 안의 글자는 그림에 포함됨
     const t = inTable(it);
     if (!t) { free.push(it); continue; }
     const cx = it.x + it.w / 2, cy = it.by - it.size * 0.3;
@@ -508,6 +574,11 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
       if (!imageMeta && !data) continue;
       blocks.push({ type: 'img', x: im.x, x1: im.x + im.w, w: im.w, h: im.h, top: im.y, bottom: im.y + im.h, data, bg });
     }
+  }
+  for (const g of figs) {
+    const data = imageMeta ? null : await renderRegion(page, g.x0, g.y0, g.x1 - g.x0, g.y1 - g.y0, 2200);
+    if (!data && !imageMeta) continue;
+    blocks.push({ type: 'img', fig: true, x: g.x0, x1: g.x1, w: g.x1 - g.x0, h: g.y1 - g.y0, top: g.y0, bottom: g.y1, data });
   }
   blocks.sort((a, b) => a.top - b.top || a.x - b.x);
   if (cv) { cv.width = 0; cv.height = 0; }

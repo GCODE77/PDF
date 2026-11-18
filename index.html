@@ -160,12 +160,22 @@
         </section>
         <section id="recentSec" class="recent-sec" hidden>
           <div class="rh"><h2 id="recentTitle">최근</h2>
-            <div class="views" role="group" aria-label="보기 방식">
-              <button data-v="list" aria-label="목록 보기" id="vList"></button>
-              <button data-v="grid" aria-label="격자 보기" id="vGrid"></button>
+            <div class="rtools">
+              <button id="selRecent" class="btn small ghost" hidden>선택</button>
+              <button id="clearRecent" class="btn small ghost" hidden>전체 지우기</button>
+              <div class="views" role="group" aria-label="보기 방식">
+                <button data-v="list" aria-label="목록 보기" id="vList"></button>
+                <button data-v="grid" aria-label="격자 보기" id="vGrid"></button>
+              </div>
             </div></div>
+          <div id="selBar" class="selbar" hidden>
+            <label class="chk"><input type="checkbox" id="selAll"> 전체 선택</label>
+            <span id="selCount" class="muted small"></span>
+            <span class="grow"></span>
+            <button id="selDel" class="btn small danger" disabled>선택 삭제</button>
+            <button id="selCancel" class="btn small ghost">취소</button>
+          </div>
           <div id="recent" class="recent"></div>
-          <div class="rclear"><button id="clearRecent" class="btn small ghost">최근 파일 지우기</button></div>
         </section>
         <section class="grid-wrap" id="gridWrap">
           <h2>도구</h2>

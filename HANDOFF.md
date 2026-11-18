@@ -1,6 +1,6 @@
 # PDF 공작소 — 세션 인수인계 (HANDOFF)
 
-> 마지막 정리: 2026-11-18 · 현재 버전 **v1.8.0** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
+> 마지막 정리: 2026-11-19 · 현재 버전 **v1.8.1** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
 > 사용자와의 대화는 **항상 한국어**로 한다(영어로 답했다가 지적받은 적 있음). 사용자는 비개발자 관점에서 화면·동작을 캡처로 알려 주는 방식으로 피드백한다.
 
 ## 1. 한눈에
@@ -32,6 +32,7 @@
 | 1.6.5 | 본문 수정에서 누른 자리에 커서 표시(전체 선택은 Ctrl+A) |
 | 1.7.0 | 변환기 개선: 도면·벡터 그림을 사진으로 가져오기(`layout.js` findFigures/renderRegion, 쪽 전체 사진 옵션), 엑셀 위치·칸크기 격자 재작성+그림, Word 「원본 위치 그대로」 배치(틀·떠 있는 표·고정 그림), 글자 상자 회전 |
 | 1.8.0 | **저장 완료 창**(`state.js savedDialog`, `desktop/main.js` will-download 추적·`open-path`/`show-in-folder`, 열기 허용 목록), **표 인식 개선**(`layout.js` gridLines로 4.5pt 틈새 열 병합, 폼 XObject 행렬 처리, 겹친 표는 가장 작은 표 우선, 엑셀 열·병합 축소), **「애매한 표는 그림으로」**(`tableConfidence`, `opts.tableImage`). 설계·측정 기록: research.md, plan.md, tests/pdf/측정기록.md |
+| 1.8.1 | 홈 최근 파일: 위쪽 「전체 지우기」(별표는 기본 유지)와 「선택」(체크박스 선택 삭제, `home.js` selecting/selected, `recent.js` removeMany·clearRecent(includeStar)) |
 
 ## 3. 코드 지도 (`js/`)
 - `main.js` 진입점. **문서 탭 관리**(`docs[]`, `activeId`, `stashActive/switchTo/closeTab`), `S.docId()`, `S.applyToDoc(docId, fn, {pages})`(보고 있지 않은 탭에도 결과 적용), 홈 카드, 저장/공유, 기본 앱 안내 대화상자, 단축키

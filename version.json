@@ -1,5 +1,5 @@
 {
- "version": "1.8.0",
- "notes": "저장 완료 창(파일·폴더 열기), 표 인식 개선, 애매한 표는 그림으로 변환",
+ "version": "1.8.1",
+ "notes": "최근 파일 전체 지우기·체크박스 선택 삭제",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

@@ -59,7 +59,8 @@ export const toggleStar = id => safe(async () => {
   await run(META, 'readwrite', s => s.put(m));
 });
 export const removeRecent = id => safe(() => run([META, FILES], 'readwrite', (m, f) => { m.delete(id); f.delete(id); return m; }));
-export const clearRecent = () => safe(async () => {
-  const drop = (await listRecent()).filter(x => !x.star);
+export const removeMany = ids => safe(() => run([META, FILES], 'readwrite', (m, f) => { ids.forEach(id => { m.delete(id); f.delete(id); }); return m; }));
+export const clearRecent = (includeStar = false) => safe(async () => {
+  const drop = (await listRecent()).filter(x => includeStar || !x.star);
   await run([META, FILES], 'readwrite', (m, f) => { drop.forEach(x => { m.delete(x.id); f.delete(x.id); }); return m; });
 });

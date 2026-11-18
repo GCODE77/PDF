@@ -1,5 +1,5 @@
 {
- "version": "1.7.0",
- "notes": "도면·그림을 사진으로 변환, 엑셀·Word 위치 맞춤 개선, 글자 상자 회전",
+ "version": "1.8.0",
+ "notes": "저장 완료 창(파일·폴더 열기), 표 인식 개선, 애매한 표는 그림으로 변환",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }

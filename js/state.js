@@ -94,6 +94,33 @@ export function download(data, name, mime = 'application/octet-stream') {
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  if (!window.electronAPI) savedDialog(null);      // 웹·폰: 저장 경로를 알 수 없으니 요청 직후 안내 (설치 앱은 저장이 끝난 뒤 main 프로세스가 알림)
+}
+
+// ---------- 저장 완료 창 ----------
+let savedModal = null;
+export function savedDialog(info) {
+  savedModal?.close();                              // 연속 저장 때 창이 쌓이지 않게 이전 것은 닫는다
+  const api = window.electronAPI;
+  let body, actions;
+  if (info && api?.openPath) {
+    const fail = m => toast(m, 'err');
+    body = h('div', { class: 'saved-info' },
+      h('p', {}, h('b', {}, '저장했습니다.')),
+      h('p', { class: 'saved-row' }, h('span', { class: 'muted' }, '이름 '), info.name),
+      h('p', { class: 'saved-row' }, h('span', { class: 'muted' }, '크기 '), fmtSize(info.size || 0)),
+      h('p', { class: 'saved-row saved-path' }, h('span', { class: 'muted' }, '위치 '), info.path));
+    actions = [
+      { label: '파일 열기', kind: 'primary', keep: true, run: async () => { const r = await api.openPath(info.path); if (r) { fail('파일을 열지 못했습니다: ' + r); return false; } } },
+      { label: '폴더 열기', keep: true, run: async () => { if (!(await api.showInFolder(info.path))) { fail('폴더를 열지 못했습니다'); return false; } } },
+      { label: '닫기' }];
+  } else {
+    body = h('p', {}, '저장을 요청했습니다. 브라우저의 다운로드 폴더를 확인하세요.');
+    actions = [{ label: '닫기', kind: 'primary' }];
+  }
+  const m = modal({ title: '저장 완료', body, actions, onClose: () => { if (savedModal === m) savedModal = null; } });
+  savedModal = m;
+  return m;
 }
 
 export const baseName = n => n.replace(/\.[^.]+$/, '');

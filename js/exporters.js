@@ -36,13 +36,13 @@ const textBlocks = (text, W, H) => {
 };
 
 // 모든 페이지를 분석한다. 글이 없는 쪽은 ocr(index) 로 글자를 얻어 문단으로 만든다
-export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, stopped, ocr, images = true, imageMeta = false, color = true, wholePage = false } = {}) {
+export async function analyzeAll(pdf, lib, idx, { onProgress, cancelled, stopped, ocr, images = true, imageMeta = false, color = true, wholePage = false, tableImage = false, tableImageForce = false, tableQ } = {}) {
   const out = [], imgCache = new Map();
   for (let n = 0; n < idx.length; n++) {
     if (cancelled?.()) throw new Error('취소되었습니다');
     if (stopped?.()) break;
     onProgress?.(`${n + 1} / ${idx.length} 페이지 분석 중`, n / idx.length);
-    let m = await analyzePage(pdf, lib, idx[n] + 1, { images, imageMeta, imgCache, color, wholePage });
+    let m = await analyzePage(pdf, lib, idx[n] + 1, { images, imageMeta, imgCache, color, wholePage, tableImage, tableImageForce, tableQ });
     if (!m.textLen && ocr && !m.pageImage) {
       onProgress?.(`${n + 1} / ${idx.length} 페이지 글자 인식(OCR) 중…`, n / idx.length);
       const t = await ocr(idx[n]);
@@ -393,7 +393,17 @@ class Axis {
     for (let i = 0; i < this.b.length; i++) { const d = Math.abs(this.b[i] - v); if (d < bd) { bd = d; bi = i; } else if (this.b[i] > v) break; }
     return bi;
   }
+  // v 이상인 첫 경계 (없으면 마지막)
+  ceil(v) { const i = this.b.findIndex(x => x >= v); return i < 0 ? this.b.length - 1 : i; }
+  // v 이하인 마지막 경계 (없으면 0)
+  floor(v) { let i = 0; while (i + 1 < this.b.length && this.b[i + 1] <= v) i++; return i; }
 }
+// 문단이 격자 경계를 새로 만들어야 하는가 (열 수·병합 과다 방지).
+// 여러 줄 문단은 줄바꿈 폭이 중요하므로 양 끝 모두. 한 줄 글은 정렬 기준 쪽만: 왼쪽 정렬=시작, 오른쪽 정렬=끝, 가운데=없음.
+// 경계를 만들지 않는 쪽은 이미 있는 경계까지 넓혀(병합) 놓는다.
+const oneLine = p => (p.lines?.length || 1) <= 1;
+const needStart = p => !oneLine(p) || (p.align !== 'right' && p.align !== 'center');
+const needEnd = p => !oneLine(p) || p.align === 'right';
 
 export async function buildXlsx(pages) {
   const z = new window.JSZip();
@@ -425,10 +435,16 @@ export async function buildXlsx(pages) {
     let xtol = 8, ytol = 3, ax, ay;
     for (let tries = 0; tries < 5; tries++) {
       ax = new Axis(); ay = new Axis();
-      for (const t of tables) { t.xs.forEach(x => ax.add(x, 1.5)); t.ys.forEach(y => ay.add(y, 1.5)); }
-      for (const m of imgs) { ax.add(m.x, 2); ax.add(m.x1, 2); ay.add(m.top, 2); ay.add(m.bottom, 2); }
+      // 큰 표의 선을 먼저 넣고, 다른 표의 선은 그 표의 가장 좁은 칸 절반(최대 4pt) 안이면 이미 있는 경계에 붙인다
+      [...tables].sort((p, q) => (q.x1 - q.x0) * (q.y1 - q.y0) - (p.x1 - p.x0) * (p.y1 - p.y0)).forEach((t, i) => {
+        const gap = v => Math.min(...v.slice(1).map((x, k) => x - v[k]));
+        const tx = i ? Math.max(1.5, Math.min(4, gap(t.xs) / 2 - 0.1)) : 1.5, ty = i ? Math.max(1.5, Math.min(4, gap(t.ys) / 2 - 0.1)) : 1.5;
+        t.xs.forEach(x => ax.add(x, tx)); t.ys.forEach(y => ay.add(y, ty));
+      });
+      for (const m of imgs) { ax.add(m.x, 4); ax.add(m.x1, 4); ay.add(m.top, 2); ay.add(m.bottom, 2); }
       for (const p of paras) {
-        if (p.segs) p.segs.forEach(s => { ax.add(s.x, xtol); ax.add(s.x1 + 1, xtol); }); else { ax.add(p.x, xtol); ax.add(p.x1 + 1, xtol); }
+        const st = needStart(p), end = needEnd(p);
+        if (p.segs) p.segs.forEach(s => { if (st) ax.add(s.x, xtol); if (end) ax.add(s.x1 + 1, xtol); }); else { if (st) ax.add(p.x, xtol); if (end) ax.add(p.x1 + 1, xtol); }
         ay.add(p.top, ytol); ay.add(p.bottom, ytol);
       }
       if (ax.b.length <= 160 && ay.b.length <= 900) break;
@@ -495,7 +511,7 @@ export async function buildXlsx(pages) {
       for (const q of parts) {
         const ct = contentOf([q.p]);
         if (!ct) continue;
-        const c0 = ax.idx(q.x), c1 = Math.max(c0 + 1, ax.idx(q.x1));
+        const c0 = needStart(p) ? ax.idx(q.x) : ax.floor(q.x + 3), c1 = Math.max(c0 + 1, needEnd(p) ? ax.idx(q.x1) : ax.ceil(q.x1 - 3));
         const f = ct.dom ? fontIdx(fontOf(ct.dom)) : 0;
         const s = style({ font: f, h: hOf(p.align), v: 'top', wrap: (p.lines?.length || 1) > 1, fmt: ct.fmt || 0 });
         place(r0, r1, c0, c1, ct, { s });

@@ -1,3 +1,6 @@
 node_modules/
 *.log
 .claude/
+tests/
+research.md
+plan.md

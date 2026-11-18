@@ -1,5 +1,5 @@
 // PDF 공작소 데스크톱 앱 (Electron) - (c) 2026 GLORY KIM
-const { app, BrowserWindow, protocol, Menu, shell, ipcMain, net, dialog } = require('electron');
+const { app, BrowserWindow, protocol, Menu, shell, ipcMain, net, dialog, session } = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -168,6 +168,30 @@ else {
       throw err;
     } finally { updating = false; }
   });
+  // 저장 완료 창: 저장 대화상자에서 고른 경로를 잡아 실제로 끝난 저장만 렌더러에 알린다 (취소·실패는 알리지 않음)
+  const saved = [];                                             // 방금 저장된 경로(최근 20개) - 열기 요청은 여기 있는 것만 허용
+  const norm = p => path.normalize(String(p || '')).toLowerCase();
+  const isSaved = p => typeof p === 'string' && p && saved.includes(norm(p));
+  const OPENABLE = /\.(pdf|png|jpe?g|docx|pptx|xlsx|txt|html?|md|csv|zip)$/i;   // 이 앱이 만드는 형식만 열기 허용(허용 목록)
+  const RISKY = { test: p => !OPENABLE.test(String(p)) };
+  const trackDownloads = () => session.defaultSession.on('will-download', (_e, item) => {
+    item.once('done', (_ev, state) => {
+      if (state !== 'completed') return;
+      const p = item.getSavePath();
+      if (!p) return;
+      let size = 0; try { size = fs.statSync(p).size; } catch { /* 없으면 0 */ }
+      saved.push(norm(p)); if (saved.length > 20) saved.shift();
+      if (win && !win.isDestroyed()) win.webContents.send('download-done', { path: p, name: path.basename(p), size });
+    });
+  });
+  ipcMain.handle('open-path', async (_e, p) => {
+    if (!isSaved(p) || RISKY.test(p) || !fs.existsSync(p)) return '허용되지 않았거나 없는 파일입니다';
+    return shell.openPath(p);                                   // 빈 문자열이면 성공, 아니면 오류 문구
+  });
+  ipcMain.handle('show-in-folder', (_e, p) => {
+    if (!isSaved(p) || !fs.existsSync(p)) return false;
+    shell.showItemInFolder(p); return true;
+  });
   ipcMain.handle('open-default-apps', async () => { await registerAssociations(true); return shell.openExternal('ms-settings:defaultapps'); });
   ipcMain.handle('initial-file', () => { const f = initial; initial = null; return f; });
   app.setAppUserModelId('kim.glory.pdfgongjakso');
@@ -183,6 +207,7 @@ else {
         return new Response(data, { headers: { 'content-type': MIME[path.extname(f).toLowerCase()] || 'application/octet-stream' } });
       } catch { return new Response('Not found', { status: 404 }); }
     });
+    trackDownloads();
     createWindow();
     registerAssociations(false).catch(() => {});
   });

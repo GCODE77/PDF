@@ -260,6 +260,12 @@ function walkOps(ol, lib, vp, pageW, pageH) {
     if (f === O.save) stack.push(ctm.slice());
     else if (f === O.restore) { if (stack.length) ctm = stack.pop(); }
     else if (f === O.transform) ctm = lib.Util.transform(ctm, a);
+    else if (f === O.paintFormXObjectBegin) {
+      // 폼 XObject: 시작에서 행렬을 쌓고(그 안의 선·그림 좌표에 반영) 끝에서 되돌린다
+      stack.push(ctm.slice());
+      const m = a && a[0];
+      if (m && m.length === 6 && Array.from(m).every(Number.isFinite)) ctm = lib.Util.transform(ctm, Array.from(m));
+    } else if (f === O.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); }
     else if (f === O.constructPath) {
       if (Array.isArray(a) && typeof a[0] === 'number' && a[1] && a[1][0] != null && typeof a[1][0] === 'object') { /* 신형: [paintOp, [data], minMax] */ doPath(a[0], a[1][0]); }
       else if (Array.isArray(a) && typeof a[0] === 'number' && a[1] && typeof a[1].length === 'number' && typeof a[1][0] === 'number') doPath(a[0], a[1]);
@@ -342,6 +348,26 @@ const uniq = (vals, tol = 2) => {
   for (const v of s) { if (out.length && v - out[out.length - 1].sum / out[out.length - 1].n < tol) { const o = out[out.length - 1]; o.sum += v; o.n++; } else out.push({ sum: v, n: 1 }); }
   return out.map(o => o.sum / o.n);
 };
+// 표의 칸 경계 위치 모으기: 선 위치를 tol(2pt) 안에서 묶은 뒤, 가까운(<NEAR pt) 두 경계가
+// 서로 다른 행(열)에만 그어져 있으면(같은 줄 높이에서 함께 나타나지 않으면) 한 경계가 어긋나게 그려진 것으로 보고 합친다.
+// 같은 높이에 둘 다 있으면 진짜 좁은 칸이므로 그대로 둔다. 반환: [{ v: 위치, m: [묶인 원래 위치들] }]
+const NEAR = 4.5;
+function gridLines(ls, key, tol = 2) {
+  const s = [...ls].sort((p, q) => p[key] - q[key]), g = [];
+  for (const l of s) {
+    const o = g[g.length - 1];
+    if (o && l[key] - o.sum / o.n < tol) { o.sum += l[key]; o.n++; o.ls.push(l); } else g.push({ sum: l[key], n: 1, ls: [l] });
+  }
+  const overlap = (A, B) => A.ls.some(p => B.ls.some(q => Math.min(p.b, q.b) - Math.max(p.a, q.a) > 3));
+  const out = g.map(o => ({ sum: o.sum, n: o.n, ls: o.ls, m: [o.sum / o.n] }));
+  for (let i = 0; i + 1 < out.length;) {
+    const A = out[i], B = out[i + 1];
+    if (B.sum / B.n - A.sum / A.n < NEAR && !overlap(A, B)) {
+      out.splice(i, 2, { sum: A.sum + B.sum, n: A.n + B.n, ls: [...A.ls, ...B.ls], m: [...A.m, ...B.m] });
+    } else i++;
+  }
+  return out.map(o => ({ v: o.sum / o.n, m: o.m }));
+}
 
 function findRuledTables(H, V, pageW, pageH) {
   H = mergeLines(H, 'y', 'a', 'b'); V = mergeLines(V, 'x', 'a', 'b');
@@ -360,32 +386,52 @@ function findRuledTables(H, V, pageW, pageH) {
   for (const ls of comps.values()) {
     const hs = ls.filter(l => l.t === 'h'), vs = ls.filter(l => l.t === 'v');
     if (hs.length < 2 || vs.length < 2) continue;
-    const xs = uniq(vs.map(l => l.x)), ys = uniq(hs.map(l => l.y));
+    const gx = gridLines(vs, 'x'), gy = gridLines(hs, 'y');
+    const xs = gx.map(o => o.v), ys = gy.map(o => o.v);
     if (xs.length < 2 || ys.length < 2 || (xs.length - 1) * (ys.length - 1) < 2) continue;
     const x0 = xs[0], x1 = xs[xs.length - 1], y0 = ys[0], y1 = ys[ys.length - 1];
     if ((x1 - x0) > pageW * 0.97 && (y1 - y0) > pageH * 0.95) continue;       // 쪽 테두리
-    const edgeV = (x, a, b) => vs.some(v => Math.abs(v.x - x) < 2.5 && v.a <= a + 3 && v.b >= b - 3);
-    const edgeH = (y, a, b) => hs.some(h => Math.abs(h.y - y) < 2.5 && h.a <= a + 3 && h.b >= b - 3);
+    // 합쳐진 경계는 원래 위치들 중 어느 것에 선이 있어도 경계로 본다
+    const near = (g, i, v) => g[i].m.some(m => Math.abs(v - m) < 2.5);
+    const edgeV = (i, a, b) => vs.some(v => near(gx, i, v.x) && v.a <= a + 3 && v.b >= b - 3);
+    const edgeH = (i, a, b) => hs.some(h => near(gy, i, h.y) && h.a <= a + 3 && h.b >= b - 3);
     const nr = ys.length - 1, nc = xs.length - 1;
     const used = Array.from({ length: nr }, () => Array(nc).fill(false));
     const cells = [];
     for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) {
       if (used[r][c]) continue;
       let cs = 1, rs = 1;
-      while (c + cs < nc && !used[r][c + cs] && !edgeV(xs[c + cs], ys[r], ys[r + 1])) cs++;
+      while (c + cs < nc && !used[r][c + cs] && !edgeV(c + cs, ys[r], ys[r + 1])) cs++;
       for (;;) {
         if (r + rs >= nr) break;
         let ok = true;
-        for (let k = c; k < c + cs; k++) if (used[r + rs][k] || edgeH(ys[r + rs], xs[k], xs[k + 1])) { ok = false; break; }
+        for (let k = c; k < c + cs; k++) if (used[r + rs][k] || edgeH(r + rs, xs[k], xs[k + 1])) { ok = false; break; }
         if (!ok) break;
         rs++;
       }
       for (let i = r; i < r + rs; i++) for (let j = c; j < c + cs; j++) used[i][j] = true;
       cells.push({ r, c, rs, cs });
     }
-    tables.push({ type: 'table', ruled: true, x0, y0, x1, y1, xs, ys, cells });
+    // 신뢰도 지표(3단계용, 지금은 기록만): 격자 단위 변 중 실제 선이 그어진 비율
+    let on = 0, all = 0;
+    for (let r = 0; r < nr; r++) for (let i = 0; i <= nc; i++) { all++; if (edgeV(i, ys[r], ys[r + 1])) on++; }
+    for (let c = 0; c < nc; c++) for (let j = 0; j <= nr; j++) { all++; if (edgeH(j, xs[c], xs[c + 1])) on++; }
+    tables.push({ type: 'table', ruled: true, x0, y0, x1, y1, xs, ys, cells, quality: { lineCover: all ? on / all : 0 } });
   }
   return tables;
+}
+
+// 표 신뢰도(3단계): quality 지표가 하나라도 기준 미달이면 「애매한 표」로 본다.
+// 기준값은 시험 샘플(tests/pdf a~e)의 정상 표 12개 분포(lineCover 최저 0.663, fit 모두 1, spill 모두 0, emptyRatio 최고 0.33)에서 여유를 두고 정했다.
+export const TABLE_Q = { minLineCover: 0.5, minFit: 0.9, maxSpill: 0.15, emptyHigh: 0.6, emptyLineCover: 0.8 };
+export function tableConfidence(q, ruled, th = TABLE_Q) {
+  th = { ...TABLE_Q, ...(th || {}) };
+  const why = [];
+  if (q.fit < th.minFit) why.push('fit');                       // 표 안 글이 칸에 안 들어감
+  if ((q.spill || 0) > th.maxSpill) why.push('spill');          // 글이 칸 경계를 넘어감
+  if (ruled && q.lineCover < th.minLineCover) why.push('lineCover');   // 칸 경계 대부분이 실제 선이 아님
+  if (ruled && q.emptyRatio > th.emptyHigh && q.lineCover < th.emptyLineCover) why.push('empty');  // 빈 칸이 많고 선도 끊김(그림 같은 격자)
+  return { ok: !why.length, why };
 }
 
 // 선이 없는 표: 줄마다 칸이 2개 이상이고 칸 위치가 세로로 맞는 연속된 줄
@@ -403,7 +449,7 @@ function findAlignedTables(lines) {
       const rowCount = col => rows.filter(r => r.segs.some(s => Math.abs(s.x - col) < 9)).length;
       const keep = cols.filter(c => rowCount(c) >= Math.ceil(rows.length * 0.6));
       const fit = rows.reduce((a, r) => a + r.segs.filter(s => keep.some(c => Math.abs(s.x - c) < 9)).length, 0) / xsAll.length;
-      if (keep.length >= 2 && fit >= 0.8) { res.push({ from: i, to: j, cols: keep }); i = j; continue; }
+      if (keep.length >= 2 && fit >= 0.8) { res.push({ from: i, to: j, cols: keep, fit }); i = j; continue; }
     }
     i = j;
   }
@@ -489,7 +535,15 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
   const blocks = [];
   // 선이 있는 표
   const rtables = findRuledTables(H, V, W, Hh);
-  const inTable = it => rtables.find(t => it.x + it.w / 2 >= t.x0 - 2 && it.x + it.w / 2 <= t.x1 + 2 && it.by - it.size * 0.3 >= t.y0 - 2 && it.by - it.size * 0.3 <= t.y1 + 2);
+  // 표가 겹치면(큰 표 칸 안의 작은 표) 가장 안쪽(면적이 가장 작은) 표에 글을 넣는다
+  const inTable = it => {
+    let best = null;
+    for (const t of rtables) {
+      if (!(it.x + it.w / 2 >= t.x0 - 2 && it.x + it.w / 2 <= t.x1 + 2 && it.by - it.size * 0.3 >= t.y0 - 2 && it.by - it.size * 0.3 <= t.y1 + 2)) continue;
+      if (!best || (t.x1 - t.x0) * (t.y1 - t.y0) < (best.x1 - best.x0) * (best.y1 - best.y0)) best = t;
+    }
+    return best;
+  };
   const free = [];
   const cellItems = new Map();
   for (const it of items) {
@@ -498,7 +552,11 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
     if (!t) { free.push(it); continue; }
     const cx = it.x + it.w / 2, cy = it.by - it.size * 0.3;
     const cell = t.cells.find(c => cx >= t.xs[c.c] - 1 && cx <= t.xs[c.c + c.cs] + 1 && cy >= t.ys[c.r] - 1 && cy <= t.ys[c.r + c.rs] + 1);
+    t._n = (t._n || 0) + 1;
     if (!cell) continue;
+    t._in = (t._in || 0) + 1;
+    const xl = t.xs[cell.c], xr = t.xs[cell.c + cell.cs];
+    if (Math.max(0, xl - it.x) + Math.max(0, it.x1 - xr) > Math.max(2, 0.25 * it.w)) t._sp = (t._sp || 0) + 1;
     (cellItems.get(cell) || cellItems.set(cell, []).get(cell)).push(it);
   }
   for (const t of rtables) {
@@ -512,6 +570,11 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
       for (const p of c.paras) colorize(p, sample);
     }
     t.top = t.y0; t.bottom = t.y1; t.x = t.x0;
+    // fit: 표 안 글 조각 중 칸에 들어간 비율, emptyRatio: 글이 없는 칸 비율 (기록만, 동작에는 쓰지 않음)
+    t.quality.fit = t._n ? t._in / t._n : 1;
+    t.quality.emptyRatio = t.cells.length ? t.cells.filter(c => !c.paras.length).length / t.cells.length : 1;
+    t.quality.spill = t._n ? (t._sp || 0) / t._n : 0;          // spill: 칸 경계를 넘어간 글 조각 비율
+    delete t._n; delete t._in; delete t._sp;
     blocks.push(t);
   }
 
@@ -530,11 +593,13 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
     for (let k = 0; k < rows.length - 1; k++) ys.push((rows[k].by + rows[k + 1].by) / 2 + rows[k].size * 0.2);
     ys.push(rows[rows.length - 1].by + rows[rows.length - 1].size * 0.35);
     const cells = [];
+    let nSeg = 0, nSp = 0;
     rows.forEach((row, r) => {
       const perCol = new Map();
       for (const s of row.segs) {
         let ci = 0, bd = 1e9;
         cols.forEach((c, idx) => { const d = Math.abs(c - s.x); if (d < bd) { bd = d; ci = idx; } });
+        nSeg++; if (s.x1 > xs[ci + 1] + 2) nSp++;
         (perCol.get(ci) || perCol.set(ci, []).get(ci)).push(s);
       }
       for (let c = 0; c < cols.length; c++) {
@@ -544,7 +609,8 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
       }
     });
     cells.forEach(c => c.paras.forEach(p => colorize(p, sample)));
-    blocks.push({ type: 'table', ruled: false, x0: xs[0], y0: ys[0], x1: xs[xs.length - 1], y1: ys[ys.length - 1], xs, ys, cells, top: ys[0], bottom: ys[ys.length - 1], x: xs[0] });
+    const quality = { lineCover: 0, fit: at.fit, emptyRatio: cells.length ? cells.filter(c => !c.paras.length).length / cells.length : 1, spill: nSeg ? nSp / nSeg : 0 };
+    blocks.push({ type: 'table', ruled: false, x0: xs[0], y0: ys[0], x1: xs[xs.length - 1], y1: ys[ys.length - 1], xs, ys, cells, top: ys[0], bottom: ys[ys.length - 1], x: xs[0], quality });
   }
   const restLines = lines.filter((_, i) => !taken.has(i));
   // 표가 중간을 갈라놓아도 같은 문단 규칙을 쓰도록, 표 경계마다 줄 묶음을 나눈다
@@ -558,6 +624,22 @@ export async function analyzePage(pdf, lib, num, opts = {}) {
   const pageLeft = restLines.length ? Math.min(...restLines.map(l => l.x)) : 0;
   const pageRight = percentile(restLines.filter(l => l.segs.length === 1 && l.segs[0].text.length > 14).map(l => l.x1), 0.9) ?? (restLines.length ? Math.max(...restLines.map(l => l.x1)) : W);
   for (const g of groups) if (g.length) for (const p of buildParas(g, pageLeft, pageRight, W)) { colorize(p, sample); blocks.push(p); }
+
+  // 애매한 표는 그림으로 (opts.tableImage, 3단계). 표 안 글은 이미 칸으로 빠져 있어 본문에 중복으로 나오지 않는다.
+  // opts.tableImageForce: 시험용, 모든 표를 그림으로. opts.tableQ: 기준값 덮어쓰기(시험용)
+  if (opts.tableImage && (images || imageMeta)) {
+    for (let i = 0; i < blocks.length; i++) {
+      const t = blocks[i];
+      if (t.type !== 'table') continue;
+      const conf = opts.tableImageForce ? { ok: false, why: ['force'] } : tableConfidence(t.quality, t.ruled, opts.tableQ);
+      if (conf.ok) continue;
+      const P = 2;      // 바깥 테두리 선 두께까지 담도록 2pt 여유
+      const x0 = Math.max(0, t.x0 - P), y0 = Math.max(0, t.y0 - P), x1 = Math.min(W, t.x1 + P), y1 = Math.min(Hh, t.y1 + P);
+      const data = imageMeta ? null : await renderRegion(page, x0, y0, x1 - x0, y1 - y0, 2200);
+      if (!data && !imageMeta) continue;         // 그림을 못 만들면 표 그대로 둔다
+      blocks[i] = { type: 'img', fig: true, tableImage: true, why: conf.why, quality: t.quality, x: x0, x1, w: x1 - x0, h: y1 - y0, top: y0, bottom: y1, data };
+    }
+  }
 
   // 그림
   const textLen = items.reduce((a, i) => a + i.str.trim().length, 0);

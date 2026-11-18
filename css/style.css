@@ -560,3 +560,5 @@ html.dark body{background:#14161a}
 
 .chkcol{display:flex;flex-direction:column;gap:8px}
 .mono{font-family:ui-monospace,Consolas,'Malgun Gothic',monospace;font-size:12.5px;line-height:1.5}
+
+.saved-info{display:flex;flex-direction:column;gap:6px}.saved-row{font-size:14px}.saved-path{word-break:break-all;font-size:12.5px}

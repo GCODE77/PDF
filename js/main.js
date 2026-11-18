@@ -1,5 +1,5 @@
 // 앱 진입점: 화면 전환 · 툴바 · 홈 카드 · 저장 · 파일 열기
-import { S, $, $$, h, icon, on, emit, toast, busy, modal, pickFiles, readBytes, download } from './state.js';
+import { S, $, $$, h, icon, on, emit, toast, busy, modal, pickFiles, readBytes, download, savedDialog } from './state.js';
 import * as D from './doc.js';
 import * as core from './pdfcore.js';
 import { initJobsUI, jobOf, jobPct, anyActive } from './ocrjob.js';
@@ -379,7 +379,7 @@ showInstall();
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
 addEventListener('appinstalled', () => { deferredInstall = null; toast('설치되었습니다. 홈 화면·시작 메뉴에서 실행하세요', 'ok'); $('#heroInstall').hidden = true; $('#btnInstall').hidden = true; });
 async function installApp() {
-  if (deferredInstall) { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; return; }
+  const webInstall = async () => { const d = deferredInstall; if (!d) return; deferredInstall = null; d.prompt(); await d.userChoice; };
   const li = (b, t) => h('li', {}, h('b', {}, b + ' '), t);
   modal({
     title: '앱으로 설치 · 다운로드',
@@ -393,7 +393,8 @@ async function installApp() {
       h('p', {}, h('b', {}, 'Windows PC: 설치 파일 하나로 설치'), h('br'), h('span', { class: 'muted small' }, '내려받아 더블클릭하면 설치되고, 바탕화면·시작 메뉴에 아이콘이 생깁니다. PDF 파일을 더블클릭해 바로 열 수도 있습니다. (처음 실행 시 Windows 보호 창이 뜨면 「추가 정보 → 실행」)')),
       h('div', { class: 'btnrow' },
         h('a', { class: 'btn primary', href: SETUP_URL, target: '_blank', rel: 'noopener' }, 'Windows 설치 파일 받기 (.exe)'),
-        h('a', { class: 'btn', href: ZIP_URL, target: '_blank', rel: 'noopener' }, '설치 없이 쓰기 (ZIP)'))],
+        h('a', { class: 'btn', href: ZIP_URL, target: '_blank', rel: 'noopener' }, '설치 없이 쓰기 (ZIP)'),
+        deferredInstall ? h('button', { class: 'btn', onclick: () => { webInstall(); } }, '이 브라우저에 웹앱으로 설치') : null)],
     actions: [{ label: '닫기' }],
   });
 }
@@ -427,6 +428,7 @@ home = initHome({
 if (window.electronAPI) {
   const openExternal = async f => { if (f) await S.openBytes(new Uint8Array(f.data), f.name); };
   window.electronAPI.onOpenFile(openExternal);
+  window.electronAPI.onDownloadDone?.(savedDialog);
   window.electronAPI.getInitialFile().then(openExternal);
   // 처음 실행 때 한 번만 기본 앱 설정을 안내
   try {

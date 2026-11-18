@@ -141,10 +141,14 @@ export async function convertDialog(preset = 'png') {
   const ocr = h('input', { type: 'checkbox', checked: true });
   const pics = h('input', { type: 'checkbox', checked: true });
   const whole = h('input', { type: 'checkbox' });
+  const tblImg = h('input', { type: 'checkbox', checked: true });
+  const tblLbl = h('label', { class: 'chk' }, tblImg, '애매한 표는 그림으로');
+  const tblNote = h('p', { class: 'muted small' }, '그림으로 들어간 표는 편집이 안 됩니다');
   const imgRow = row('화질', dpi);
   const lay = seg('dlay', [['fixed', '원본 위치 그대로', '글·표·그림을 쪽 위에 고정'], ['flow', '편집하기 편하게', '일반 문서처럼 이어서 배치']], 'fixed');
   const layRow = row('Word 배치', lay.el);
   const txtRow = row('옵션', h('label', { class: 'chk' }, ocr, '글자가 없는 페이지는 OCR로 인식 (한국어+영어)'), h('label', { class: 'chk' }, pics, '그림 포함'), h('label', { class: 'chk' }, whole, '도면·그림이 큰 쪽은 쪽 전체를 사진으로 (글자는 편집 안 됨)'));
+  const tblRow = row('표', h('div', {}, tblLbl, tblNote));
   const note = h('p', { class: 'muted small' });
   const NOTES = {
     docx: '글꼴·크기·색·정렬을 최대한 살리고, 선이 있는 표는 Word 표로, 그림·도면은 그림으로 옮깁니다.',
@@ -160,12 +164,16 @@ export async function convertDialog(preset = 'png') {
     imgRow.hidden = !img; txtRow.hidden = img; layRow.hidden = v !== 'docx';
     pics.parentElement.hidden = !(v === 'docx' || v === 'pptx' || v === 'html' || v === 'xlsx');
     whole.parentElement.hidden = pics.parentElement.hidden;
+    tblRow.hidden = pics.parentElement.hidden;
+    tblImg.disabled = !pics.checked;                               // 「그림 포함」을 끄면 표 그림 대체도 동작하지 않음
+    tblNote.textContent = pics.checked ? '그림으로 들어간 표는 편집이 안 됩니다' : '「그림 포함」이 꺼져 있어 표를 그림으로 바꾸지 않습니다';
     note.textContent = img ? '여러 페이지는 ZIP 한 개로 묶어 저장합니다.' : NOTES[v] + ' 스캔·복잡한 편집 문서는 원본과 조금 다를 수 있습니다.';
   }
   sync(preset);
+  pics.addEventListener('change', () => sync(fmt.get()));
   modal({
     title: 'PDF 파일 변환', wide: true,
-    body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, layRow, note],
+    body: [h('p', { class: 'muted' }, '변환할 형식을 고르세요.'), fmt.el, pages.el, imgRow, txtRow, tblRow, layRow, note],
     actions: [{ label: '취소' }, {
       label: '변환하여 저장', kind: 'primary', icon: 'save', run: async () => {
         if (fmt.get() === 'md') { setTimeout(() => import('./aimd.js').then(x => x.aiMarkdownDialog()), 80); return; }
@@ -197,12 +205,11 @@ export async function convertDialog(preset = 'png') {
             let w = null;
             const lib = await D.getPdfjs();
             const r = await X.exportPages(f, S.pdf, lib, idx, {
-              title: base, images: pics.checked, layout: lay.get(), wholePage: whole.checked, cancelled: () => b.cancelled, stopped: () => b.stopped, onProgress: (t, p) => b.set(t, p),
+              title: base, images: pics.checked, layout: lay.get(), wholePage: whole.checked, tableImage: tblImg.checked, cancelled: () => b.cancelled, stopped: () => b.stopped, onProgress: (t, p) => b.set(t, p),
               ocr: ocr.checked ? async i => { w ||= await ocrWorker('kor+eng'); return (await ocrPage(w, i)).text; } : null,
             });
             download(r.blob, base + '.' + r.ext);
           }
-          toast('변환한 파일을 저장했습니다', 'ok');
         } catch (e) { err(e); return false; } finally { b.close(); }
       },
     }],

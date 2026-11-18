@@ -368,7 +368,6 @@ addEventListener('drop', async e => {
 addEventListener('beforeunload', e => { if (docs.some(isDirty) || anyActive()) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- 앱 설치 · 다운로드 ----------
-const ZIP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-gongjakso-offline.zip';
 const SETUP_URL = 'https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe';
 const isDesktopApp = /Electron/.test(navigator.userAgent);
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone || isDesktopApp;
@@ -393,7 +392,6 @@ async function installApp() {
       h('p', {}, h('b', {}, 'Windows PC: 설치 파일 하나로 설치'), h('br'), h('span', { class: 'muted small' }, '내려받아 더블클릭하면 설치되고, 바탕화면·시작 메뉴에 아이콘이 생깁니다. PDF 파일을 더블클릭해 바로 열 수도 있습니다. (처음 실행 시 Windows 보호 창이 뜨면 「추가 정보 → 실행」)')),
       h('div', { class: 'btnrow' },
         h('a', { class: 'btn primary', href: SETUP_URL, target: '_blank', rel: 'noopener' }, 'Windows 설치 파일 받기 (.exe)'),
-        h('a', { class: 'btn', href: ZIP_URL, target: '_blank', rel: 'noopener' }, '설치 없이 쓰기 (ZIP)'),
         deferredInstall ? h('button', { class: 'btn', onclick: () => { webInstall(); } }, '이 브라우저에 웹앱으로 설치') : null)],
     actions: [{ label: '닫기' }],
   });

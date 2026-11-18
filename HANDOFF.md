@@ -5,7 +5,7 @@
 
 ## 1. 한눈에
 - 위치: `03_개인앱\PDF편집기` (빌드 없는 정적 PWA + Electron 설치본)
-- 저장소: https://github.com/GCODE77/PDF (공개, Pages 배포 = https://gcode77.github.io/PDF/ , 릴리스에 설치 파일·ZIP)
+- 저장소: https://github.com/GCODE77/PDF (공개, Pages 배포 = https://gcode77.github.io/PDF/ , 릴리스에 설치 파일만, ZIP은 v1.8.0부터 배포 중단)
 - 보조 저장소: `GCODE77/GCODE77.github.io` (공개, **사용자 승인으로 생성**) — 소문자 `/pdf` 등 잘못된 주소를 `/PDF/` 로 이동시키는 안내 페이지만 있음
 - 앱 이름 「PDF 공작소」, 저작권 「© 2026 GLORY KIM」, 아이콘은 사용자가 고른 3번(겹친 문서 + PDF 글자)
 - 대상: 폰(안드로이드·아이폰, PWA) + PC(웹 / Windows 설치 앱). 모든 처리는 기기 안에서만(파일 업로드 없음)
@@ -95,5 +95,5 @@ cp js/파일.js /tmp/x.mjs && node --check /tmp/x.mjs
 # 설치 파일 빌드(영문 임시 폴더에서) — 실패 시 몇 초 뒤 재시도
 python desktop/build.py
 # 릴리스(빌드·버전 확인 후)
-gh release create vX.Y.Z /tmp/PDF-Gongjakso-Setup.exe <오프라인ZIP> --repo GCODE77/PDF --title "PDF 공작소 vX.Y.Z" --latest --notes "..."
+gh release create vX.Y.Z /tmp/PDF-Gongjakso-Setup.exe --repo GCODE77/PDF --title "PDF 공작소 vX.Y.Z" --latest --notes "..."
 ```

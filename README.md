@@ -12,7 +12,6 @@ PDF를 열고 · 고치고 · 서명하고 · 변환하고 · 줄이는 앱. 폰
 |---|---|
 | **Windows (가장 쉬움)** | [Releases](https://github.com/GCODE77/PDF/releases/latest)의 `PDF-Gongjakso-Setup.exe`를 받아 더블클릭. 바탕화면·시작 메뉴 아이콘이 생기고, PDF 파일의 「연결 프로그램」으로도 쓸 수 있습니다. |
 | 폰 · PC (웹앱 설치) | 위 웹 주소를 열고 앱 안의 「앱 설치」 버튼(또는 브라우저 메뉴의 「앱 설치 / 홈 화면에 추가」)을 누릅니다. 아이폰은 사파리의 공유 → 「홈 화면에 추가」. |
-| 설치 없이 PC에서 | Releases의 `PDF-gongjakso-offline.zip`을 풀고 `실행.bat` 더블클릭 (파이썬 불필요) |
 
 > 설치 파일은 코드 서명이 없어서 처음 실행할 때 Windows 보호 화면이 뜰 수 있습니다. 「추가 정보 → 실행」을 누르세요.
 > 웹앱 설치와 오프라인 기능은 HTTPS 주소에서만 동작합니다.
@@ -103,9 +102,8 @@ PDF를 열고 · 고치고 · 서명하고 · 변환하고 · 줄이는 앱. 폰
 
 1. 버전 번호를 올립니다: `js/update.js`의 `VERSION`, `version.json`의 `version`·`notes`, `desktop/package.json`의 `version`, `sw.js`의 캐시 이름 `pdfgongjakso-vN`(새 모듈이 생기면 `CORE` 목록에도 추가), README의 「현재 버전」.
 2. `python desktop/build.py`로 설치 파일(`PDF-Gongjakso-Setup.exe`)을 만듭니다. 한글 경로 문제를 피하려고 임시 영문 폴더(`%TEMP%\pdfg-build`)에서 빌드하며, Node.js와 Python(Pillow)이 필요합니다. 빌드 스크립트가 설치 프로그램의 한국어 문구(「OK」→「확인」 등)를 보정합니다. rcedit 단계에서 「Unable to commit changes」로 가끔 실패하니(잠시 파일 잠김) **몇 초 뒤 다시** 실행합니다. 새 설치 파일에 새 버전이 들어갔는지(`win-unpacked/resources/app.asar` 안의 `VERSION`) 확인한 뒤에만 다음으로 갑니다.
-3. `python pack.py` 같은 방식으로 오프라인 ZIP(`PDF-gongjakso-offline.zip`, `.git`·`candidates` 제외)을 만듭니다.
-4. 커밋 → `main`에 푸시(GitHub Pages로 웹앱이 자동 배포) → 새 태그로 `gh release create vX.Y.Z` (설치 파일 + ZIP 첨부, `--latest`). 네트워크가 불안정하면 푸시·릴리스를 재시도합니다. **빌드가 실패한 상태로 릴리스를 만들지 않습니다**(이전 설치 파일이 새 버전으로 올라간 적이 있음).
-5. 이미 설치된 앱들은 다음 확인 때 알림을 받습니다. 웹은 새로고침하면 바로 적용됩니다.
+3. 커밋 → `main`에 푸시(GitHub Pages로 웹앱이 자동 배포) → 새 태그로 `gh release create vX.Y.Z` (설치 파일만 첨부, `--latest`. ZIP은 더 이상 배포하지 않음). 네트워크가 불안정하면 푸시·릴리스를 재시도합니다. **빌드가 실패한 상태로 릴리스를 만들지 않습니다**(이전 설치 파일이 새 버전으로 올라간 적이 있음).
+4. 이미 설치된 앱들은 다음 확인 때 알림을 받습니다. 웹은 새로고침하면 바로 적용됩니다.
 
 ## 구성
 
@@ -140,7 +138,7 @@ desktop/      Windows 설치 앱(Electron): main.js(자동 업데이트·기본 
 desktop/tests/ 설치본을 띄워 CDP로 확인하는 시험 스크립트(경로는 PC에 맞게 수정해서 사용)
 404.html      잘못된 주소를 첫 화면으로 이동
 HANDOFF.md    세션 인수인계 문서(현재 상태·설계·함정·미해결)
-실행.bat · server.ps1   설치 없이 PC에서 실행(ZIP용)
+실행.bat · server.ps1   (예전 ZIP 배포용, 현재는 배포하지 않음)
 ```
 
 ---

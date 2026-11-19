@@ -29,24 +29,37 @@ const MAX_TABS = 12;
 const isDirty = d => (d.id === activeId ? S.dirty : d.dirty);
 S.docId = () => activeId;
 // 어느 탭의 문서든(보고 있지 않은 문서도) 결과를 적용한다. 백그라운드 작업(문자 인식 등)이 사용
-S.applyToDoc = async (docId, fn, opt = {}) => {
+S.applyToDoc = (docId, fn, opt = {}) => D.withDocLock(docId, async () => {
+  // 교정 굽기와 같은 잠금 안에서 실행하고, 결과를 넣기 직전에 문서가 그사이 바뀌었는지(바이트 판) 다시 확인한다.
+  // 바뀌었으면 결과를 버린다: 교정 전 바이트에 만든 결과가 교정 후 문서를 덮어쓰면 안 된다.
   const rec = docs.find(d => d.id === docId);
   if (!rec) throw new Error('작업하던 문서가 닫혀서 결과를 넣지 못했습니다 (임시저장은 남아 있습니다)');
   const changed = '작업하는 동안 쪽 구성이 바뀌어 자동으로 넣지 못했습니다. 다시 시작하면 임시저장에서 이어서 합니다';
   if (docId === activeId) {
     await D.flush();
     if (opt.pages && S.n !== opt.pages) throw new Error(changed);
-    await D.applyBytes(await fn(S.bytes));
+    const base = S.bytes;
+    const nb = await fn(base);
+    opt.guard?.();
+    if (activeId !== docId || S.bytes !== base) throw new Error(changed);
+    await D.applyBytes(nb);
     return;
   }
-  let bytes = rec.bytes;
-  if (rec.overlays && Object.values(rec.overlays).some(l => l.length)) bytes = await core.flatten(rec.bytes, rec.overlays, rec.imgs);
+  if (D.hasRedact(rec.overlays)) {      // 교정 예약이 있는 문서: 굽기 전에 그 문서의 글자 인식을 취소 (fn 이 취소를 알아채고 멈춘다)
+    const J = await import('./ocrjob.js');
+    J.cancelForRedact(docId);
+  }
+  const base = rec.bytes, baseOv = rec.overlays;
+  let bytes = base;
+  if (baseOv && Object.values(baseOv).some(l => l.length)) bytes = await D.flattenAll(base, baseOv, rec.imgs);
   if (opt.pages && (await window.PDFLib.PDFDocument.load(bytes)).getPageCount() !== opt.pages) throw new Error(changed);
   const nb = await fn(bytes);
+  opt.guard?.();
+  if (activeId === docId || !docs.includes(rec) || rec.bytes !== base || rec.overlays !== baseOv) throw new Error(changed);
   rec.hist.push({ bytes: rec.bytes, ov: JSON.stringify(rec.overlays) });
   rec.bytes = nb; rec.overlays = {}; rec.fut = []; rec.dirty = true;
   renderTabs();
-};
+});
 function stashActive() {
   const r = docs.find(d => d.id === activeId);
   if (!r || !S.pdf) return;
@@ -156,7 +169,9 @@ S.save = async () => {
     const bytes = await D.currentBytes();
     download(bytes, D.safeName(), 'application/pdf');
     S.dirty = false;
-    R.addRecent(D.safeName(), bytes, S.pdf).then(() => home.refresh());
+    // 최근 파일 썸네일은 저장한 바이트로 만든다 (교정을 굽기 전 원본 화면이 썸네일로 남지 않게)
+    const own = bytes !== S.bytes ? await D.openPdfjs(bytes).catch(() => null) : null;
+    R.addRecent(D.safeName(), bytes, own || (bytes === S.bytes ? S.pdf : null)).then(() => home.refresh()).finally(() => { if (own) D.killPdf(own); });
     toast('저장했습니다. 다운로드 폴더를 확인하세요', 'ok');
   } catch (e) { toast(e.message || '저장하지 못했습니다', 'err'); }
   finally { b.close(); }

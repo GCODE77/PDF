@@ -5,7 +5,7 @@ import * as c2 from './core2.js';
 import * as D from './doc.js';
 import * as V from './viewer.js';
 import { needDoc, err, row, opt, pagesField, seg } from './tools.js';
-import { analyzePage, editableLines } from './layout.js';
+import { analyzePage } from './layout.js';
 import { blankPagesDialog } from './blank.js';
 import { orientDialog } from './orient.js';
 import { duplicatePagesDialog } from './dup.js';
@@ -244,73 +244,213 @@ export async function deleteDialog() {
 }
 
 // ---------- 교정 (영구 삭제) ----------
+// 붙임표는 일반 하이픈 말고도 줄바꿈 없는 하이픈(U+2011)·대시·전각 하이픈을 쓰는 문서가 있다
+const HY = '[-\\u2010-\\u2015\\u2212\\uFE63\\uFF0D]';
 const PRESETS = [
-  ['rrn', '주민등록번호', '\\d{6}\\s*-\\s*[1-4]\\d{6}'],
-  ['tel', '전화번호', '0\\d{1,2}\\s*-\\s*\\d{3,4}\\s*-\\s*\\d{4}'],
+  ['rrn', '주민등록번호', `\\d{6}\\s*${HY}\\s*[1-4]\\d{6}`],
+  ['tel', '전화번호', `0\\d{1,2}\\s*${HY}\\s*\\d{3,4}\\s*${HY}\\s*\\d{4}`],
   ['mail', '이메일', '[\\w.+-]+@[\\w-]+\\.[\\w.-]+'],
-  ['card', '카드번호', '\\d{4}[- ]\\d{4}[- ]\\d{4}[- ]\\d{4}'],
+  ['card', '카드번호', `\\d{4}(?:${HY}| )\\d{4}(?:${HY}| )\\d{4}(?:${HY}| )\\d{4}`],
 ];
-const charW = ch => (/[ᄀ-ᇿ㄰-㆏가-힯㐀-鿿]/.test(ch) ? 1 : /\s/.test(ch) ? 0.3 : /[.,:;'"!|il1()-]/.test(ch) ? 0.35 : 0.58);
+// 글자 폭: pdf.js 텍스트 조각의 실제 폭(item.width)을 비례로 나눈다. 조각 안 글자별 비율은 비슷한 글꼴(Arial=Helvetica 폭)로 잰다
+let measCtx = null;
+const FAMS = { serif: '"Times New Roman", Batang, serif', monospace: '"Courier New", monospace' };
+function charAdv(str, fam) {
+  measCtx ||= document.createElement('canvas').getContext('2d');
+  measCtx.font = `100px ${FAMS[fam] || 'Arial, "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif'}`;
+  return [...str].map(ch => Math.max(1, measCtx.measureText(ch).width));
+}
+// 쪽의 글자를 줄(같은 방향·같은 기준선) 단위 글자 목록으로 만든다. 가로·세로·기울어진 글자 모두 포함
+// 글자마다 {c, s0, s1(줄 방향 위치), box:[x0,y0,x1,y1](화면 좌표 pt)}
+async function pageRuns(page, lib) {
+  const vp = page.getViewport({ scale: 1 });
+  const tc = await page.getTextContent();
+  const runs = [];
+  let cur = null;
+  for (const it of tc.items) {
+    if (typeof it.str !== 'string' || !it.str.length) { if (it.hasEOL) cur = null; continue; }
+    const m = lib.Util.transform(vp.transform, it.transform);
+    const size = Math.hypot(m[2], m[3]), L = Math.hypot(m[0], m[1]);
+    if (!(size > 0.3) || !(L > 0)) continue;
+    const u = [m[0] / L, m[1] / L], v = [m[2] / size, m[3] / size];   // u: 글자 진행 방향, v: 글자 위쪽
+    const w = (it.width || 0) * Math.hypot(vp.transform[0], vp.transform[1]) || size * 0.5 * it.str.length;
+    const o = [m[4], m[5]];
+    if (cur) {
+      const d = [o[0] - cur.end[0], o[1] - cur.end[1]];
+      const along = d[0] * cur.u[0] + d[1] * cur.u[1], perp = d[0] * cur.v[0] + d[1] * cur.v[1];
+      const same = Math.abs(u[0] * cur.u[0] + u[1] * cur.u[1]) > 0.999 && Math.abs(perp) < 0.4 * Math.max(size, cur.size) && along > -0.6 * size && along < 2 * size;
+      if (!same) cur = null;
+      else if (along > 0.17 * size && !/\s$/.test(cur.chars[cur.chars.length - 1]?.c || ' ') && !/^\s/.test(it.str)) cur.chars.push(mkChar(' ', cur.end, u, v, 0, along, size));
+    }
+    if (!cur) { cur = { u, v, size, chars: [], end: o }; runs.push(cur); }
+    const adv = charAdv(it.str, tc.styles?.[it.fontName]?.fontFamily), tot = adv.reduce((a, b) => a + b, 0);
+    let s = 0;
+    [...it.str].forEach((c, j) => { const a = w * adv[j] / tot; cur.chars.push(mkChar(c, o, u, v, s, s + a, size)); s += a; });
+    cur.end = [o[0] + u[0] * w, o[1] + u[1] * w];
+    cur.size = Math.max(cur.size, size);
+    if (it.hasEOL) cur = null;
+  }
+  return runs;
+}
+function mkChar(c, o, u, v, s0, s1, size) {
+  const pts = [];
+  for (const s of [s0, s1]) for (const t of [-0.28 * size, 1.0 * size]) pts.push([o[0] + u[0] * s + v[0] * t, o[1] + u[1] * s + v[1] * t]);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return { c, u, size, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
+}
+// 찾은 상자를 렌더한 그림의 잉크에 맞춰 넓힌다: 상자 끝이 글자 획 위에 걸려 있으면 획이 끝나는 곳까지 (최대 0.7 글자 크기)
+function snapToInk(box, u, size, img) {
+  if (!img) return box;
+  const { d, W, H, k } = img;
+  const ax = Math.abs(u[0]) > 0.99 ? 0 : Math.abs(u[1]) > 0.99 ? 1 : -1;
+  if (ax < 0) return box;                                    // 기울어진 글자는 여유를 넉넉히 주는 것으로 대신한다
+  const [x0, y0, x1, y1] = box.map(v => Math.round(v * k));
+  const lum = (x, y) => { const i = (y * W + x) * 4; return 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; };
+  // 가로줄이면 세로 띠(열)의 잉크 여부, 세로줄이면 가로 띠(행)
+  const band = ax === 0 ? [Math.max(0, y0), Math.min(H - 1, y1)] : [Math.max(0, x0), Math.min(W - 1, x1)];
+  const samp = [];
+  for (let q = band[0]; q <= band[1]; q += Math.max(1, Math.floor((band[1] - band[0]) / 6))) samp.push(ax === 0 ? lum(Math.min(W - 1, Math.max(0, x0)), q) : lum(q, Math.min(H - 1, Math.max(0, y0))));
+  const bg = Math.max(...samp, 0);
+  const inked = p => {
+    if (ax === 0 ? (p < 0 || p >= W) : (p < 0 || p >= H)) return false;
+    for (let q = band[0]; q <= band[1]; q++) if (bg - (ax === 0 ? lum(p, q) : lum(q, p)) > 14) return true;
+    return false;
+  };
+  const lim = Math.round(0.7 * size * k);
+  let lo = ax === 0 ? x0 : y0, hi = ax === 0 ? x1 : y1;
+  for (let n = 0; n < lim && inked(hi); n++) hi++;
+  for (let n = 0; n < lim && inked(lo); n++) lo--;
+  const out = [...box];
+  if (ax === 0) { out[0] = lo / k; out[2] = hi / k; } else { out[1] = lo / k; out[3] = hi / k; }
+  return out;
+}
+// 정규식 목록으로 쪽에서 찾은 영역들 [x,y,w,h] (pt, 화면 좌표)
+export async function findRedactBoxes(page, lib, res, pdf, num) {
+  const runs = await pageRuns(page, lib);
+  const hits = [];
+  for (const r of runs) {
+    const text = r.chars.map(c => c.c).join('');
+    for (const re of res) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text))) {
+        if (!m[0]) { re.lastIndex++; continue; }
+        const cs = r.chars.slice(m.index, m.index + m[0].length);
+        const b = [Math.min(...cs.map(c => c.box[0])), Math.min(...cs.map(c => c.box[1])), Math.max(...cs.map(c => c.box[2])), Math.max(...cs.map(c => c.box[3]))];
+        hits.push({ b, u: r.u, size: r.size });
+      }
+    }
+  }
+  if (!hits.length) return [];
+  let img = null;
+  try {
+    const k = 2, cv = await core.renderCanvas(pdf, num, k);
+    img = { d: cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, W: cv.width, H: cv.height, k };
+    cv.width = 0;
+  } catch { /* 그림 없이 여유만 준다 */ }
+  return hits.map(({ b, u, size }) => {
+    const s = snapToInk(b, u, size, img);
+    const pad = 0.6 + 0.1 * size;
+    return [s[0] - pad, s[1] - pad, s[2] - s[0] + 2 * pad, s[3] - s[1] + 2 * pad, size];
+  });
+}
+// 가리는 방식(검은 상자 / 모자이크)과 모자이크 세기 고르기. S.style.rmode('box'|'mosaic'), S.style.rlevel(1~3)
+function coverPicker() {
+  const lv = seg('rlv', core.MOSAIC_LEVELS.slice(1).map((l, i) => [String(i + 1), l.label]), String(S.style.rlevel || 2), v => { S.style.rlevel = +v; });
+  lv.el.classList.add('inline');
+  const md = seg('rmd', [['box', '검은 상자'], ['mosaic', '모자이크']], S.style.rmode || 'box', v => { S.style.rmode = v; lvRow.hidden = v !== 'mosaic'; });
+  md.el.classList.add('inline');
+  const lvRow = h('div', {}, row('모자이크 세기', lv.el), h('p', { class: 'muted small' }, MOSAIC_NOTE));
+  lvRow.hidden = (S.style.rmode || 'box') !== 'mosaic';
+  return { el: h('div', { class: 'cover-pick' }, row('가리는 방식', md.el), lvRow), mosaic: () => (md.get() === 'mosaic' ? +lv.get() : 0) };
+}
+const MOSAIC_NOTE = core.MOSAIC_NOTE;
 export async function redactSearchDialog() {
   if (!await needDoc()) return;
   const words = h('textarea', { class: 'inp txt', placeholder: '지울 단어를 한 줄에 하나씩 입력 (예: 홍길동)', style: { minHeight: '90px' } });
   const checks = PRESETS.map(([id, t]) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', 'data-id': id }), t));
+  const cover = coverPicker();
   modal({
-    title: '검색해서 교정 표시', body: [h('p', { class: 'muted' }, '찾은 글자 위에 검은 상자(교정 표시)를 만듭니다. 아직 지워지지 않으며, 확인한 뒤 「교정 적용」을 눌러야 영구 삭제됩니다.'), words, h('div', { class: 'chkgrid' }, checks)],
+    title: '검색해서 교정 표시', body: [h('p', { class: 'muted' }, '찾은 글자 위에 교정 표시(검은 상자 또는 모자이크)를 만듭니다. 아직 지워지지 않으며, 확인한 뒤 「교정 적용」을 눌러야 영구 삭제됩니다. 스캔 그림 속 글자는 찾지 못하니 직접 영역을 지정하세요.'), words, h('div', { class: 'chkgrid' }, checks), cover.el],
     actions: [{ label: '취소' }, {
       label: '찾아서 표시', kind: 'primary', run: async () => {
         const res = [];
         words.value.split('\n').map(s => s.trim()).filter(Boolean).forEach(w => res.push(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')));
         checks.forEach((c, i) => { if (c.querySelector('input').checked) res.push(new RegExp(PRESETS[i][2], 'g')); });
         if (!res.length) { toast('지울 단어를 입력하거나 항목을 골라 주세요', 'err'); return false; }
+        const mz = cover.mosaic();
         const bz = busy('글자를 찾는 중…');
         try {
-          await D.flush();
+          // 굽지 않은 원본 글자 층에서 찾는다 (이미 지정한 교정·편집은 그대로 둔다)
           const lib = await D.getPdfjs();
-          let n = 0;
-          D.snap();
+          const found = [];
           for (let i = 0; i < S.n; i++) {
-            const lines = await editableLines(await S.pdf.getPage(i + 1), lib);
-            for (const ln of lines) {
-              const cum = [0];
-              for (const ch of ln.text) cum.push(cum[cum.length - 1] + charW(ch));
-              const tot = cum[cum.length - 1] || 1;
-              for (const re of res) {
-                re.lastIndex = 0;
-                let m;
-                while ((m = re.exec(ln.text))) {
-                  if (!m[0]) { re.lastIndex++; continue; }
-                  const a = ln.x + ln.w * cum[m.index] / tot, b = ln.x + ln.w * cum[m.index + m[0].length] / tot;
-                  (S.overlays[i] ||= []).push({ id: 'o' + (S.uid++), type: 'redact', x: a - 1, y: ln.top, w: b - a + 2, h: ln.h, color: '#000000', size: ln.size });
-                  n++;
-                }
-              }
-            }
+            bz.set?.(`${i + 1} / ${S.n} 쪽`, i / S.n);
+            for (const [x, y, w, hh, sz] of await findRedactBoxes(await S.pdf.getPage(i + 1), lib, res, S.pdf, i + 1)) found.push([i, x, y, w, hh, sz]);
           }
-          const { emit } = await import('./state.js');
-          emit('overlays-changed');
-          toast(n ? `${n}곳에 교정 표시를 했습니다. 확인 후 「교정 적용」을 눌러 주세요` : '찾은 글자가 없습니다', n ? 'ok' : 'err');
+          const inside = (i, x, y, w, hh) => (S.overlays[i] || []).some(o => o.type === 'redact' && o.x <= x + 0.01 && o.y <= y + 0.01 && o.x + o.w >= x + w - 0.01 && o.y + o.h >= y + hh - 0.01);
+          const add = found.filter(f => !inside(...f));
+          if (add.length) {
+            D.snap();
+            for (const [i, x, y, w, hh, sz] of add) (S.overlays[i] ||= []).push({ id: 'o' + (S.uid++), type: 'redact', x, y, w, h: hh, color: '#000000', size: sz, ...(mz ? { mosaic: mz } : {}) });
+            const { emit } = await import('./state.js');
+            emit('overlays-changed');
+          }
+          toast(add.length ? `${add.length}곳에 교정 표시를 했습니다. 확인 후 「교정 적용」을 눌러 주세요` : found.length ? '찾은 글자는 이미 모두 교정 표시가 되어 있습니다' : '찾은 글자가 없습니다', add.length ? 'ok' : 'err');
         } catch (e) { err(e); return false; } finally { bz.close(); }
       },
     }],
   });
 }
+// 교정 상자와 겹치는 주석(양식 칸 포함)이 있는 쪽 번호들
+async function pagesWithAnnotUnderBox(pages) {
+  const out = [];
+  const lib = await D.getPdfjs();
+  const toView = (vp, r) => { const a = lib.Util.applyTransform([r[0], r[1]], vp.transform), b = lib.Util.applyTransform([r[2], r[3]], vp.transform); return [a[0], a[1], b[0], b[1]]; };
+  for (const i of pages) {
+    const pg = await S.pdf.getPage(i + 1), vp = pg.getViewport({ scale: 1 });
+    let anns = [];
+    try { anns = await pg.getAnnotations(); } catch { /* 주석 읽기 실패: 안전하게 그림으로 */ out.push(i); continue; }
+    const boxes = (S.overlays[i] || []).filter(o => o.type === 'redact');
+    let hit = true;                                       // 판단에 실패하면 안전하게 그림으로
+    try { hit = anns.some(a => {
+      if (!a.rect || a.subtype === 'Link') return false;
+      const [x1, y1, x2, y2] = toView(vp, a.rect);
+      const ax0 = Math.min(x1, x2), ax1 = Math.max(x1, x2), ay0 = Math.min(y1, y2), ay1 = Math.max(y1, y2);
+      return boxes.some(o => o.x < ax1 && o.x + o.w > ax0 && o.y < ay1 && o.y + o.h > ay0);
+    }); } catch (e) { console.warn('주석 위치 확인 실패', e); }
+    if (hit) out.push(i);
+  }
+  return out;
+}
 export async function redactApplyDialog() {
   if (!await needDoc()) return;
   const pagesWith = Object.entries(S.overlays).filter(([, l]) => l.some(o => o.type === 'redact')).map(([i]) => +i);
   if (!pagesWith.length) { toast('교정 표시가 없습니다. 「교정」 도구로 지울 영역을 드래그해 주세요'); V.setTool('redact'); return; }
-  const mode = seg('redm', [['img', '그림으로 바꿔 완전 삭제 (권장)', `해당 ${pagesWith.length}쪽의 글자·그림이 모두 이미지로 바뀌어 복구할 수 없습니다 (이 쪽은 글자 선택 불가)`], ['txt', '글자만 제거', '교정 상자가 글자 줄 전체를 덮을 때만 확실합니다 · 나머지 쪽은 그대로 유지']], 'img');
+  const mosN = Object.values(S.overlays).flat().filter(o => o.type === 'redact' && o.mosaic).length;
+  // 모자이크는 쪽을 그림으로 다시 만들어야 원본이 남지 않으므로 「글자만 제거」와 같이 쓸 수 없다
+  const mode = seg('redm', mosN
+    ? [['img', '그림으로 바꿔 완전 삭제 (모자이크는 이 방식만 가능)', `해당 ${pagesWith.length}쪽의 글자·그림이 모두 이미지로 바뀌어 저장한 파일에서 복구할 수 없습니다`]]
+    : [['img', '그림으로 바꿔 완전 삭제 (권장)', `해당 ${pagesWith.length}쪽의 글자·그림이 모두 이미지로 바뀌어 저장한 파일에서 복구할 수 없습니다 (이 쪽은 글자 선택 불가)`], ['txt', '글자만 제거 (일부만 지워질 수 있음)', '긴 글줄 속 글자·입력 양식 값·주석·그림 속 글자·목차·문서 정보가 남을 수 있어 중요한 정보에는 쓰지 마세요. 상자 아래에 주석·양식 칸이 있는 쪽은 자동으로 그림으로 바꿉니다']], 'img');
   modal({
-    title: '교정 적용 (영구 삭제)', body: [h('p', {}, `${pagesWith.length}쪽의 교정 표시를 적용합니다. 적용하면 되돌릴 수 없는 삭제가 됩니다 (실행 취소는 가능).`), mode.el],
+    title: '교정 적용 (영구 삭제)', body: [h('p', {}, `${pagesWith.length}쪽의 교정 표시를 적용합니다. 저장한 파일에서는 지운 내용을 되살릴 수 없습니다. 저장하기 전까지는 이 화면에서 실행 취소(Ctrl+Z)로 적용 전으로 돌아갈 수 있습니다.`), mode.el,
+      h('p', { class: 'muted' }, '그림 방식을 쓰면 교정이 없는 쪽의 모양과 글자는 그대로이지만, 문서 목차·문서 정보·입력 양식 칸은 사라질 수 있습니다.'),
+      mosN ? h('p', { class: 'muted' }, `모자이크 ${mosN}곳이 있어 그림 방식으로 고정됩니다. 교정한 쪽은 글자 선택·검색이 사라지니 필요하면 적용 후 「문자 인식 (OCR)」을 쓰세요.`) : null,
+      mosN ? h('p', { class: 'muted' }, MOSAIC_NOTE) : null],
     actions: [{ label: '취소' }, {
       label: '교정 적용', kind: 'primary', run: async () => {
         const bz = busy('교정하는 중…');
         try {
-          await D.flush();
-          let bytes = S.bytes;
-          if (mode.get() === 'img') bytes = await c2.rasterizePages(bytes, S.pdf, pagesWith, 2.2, (i, n) => bz.set(`${i + 1} / ${n} 쪽`, i / n));
-          await D.applyBytes(bytes);
-          toast('교정을 적용했습니다. 지운 내용은 복구할 수 없습니다', 'ok');
+          const prog = (i, n) => bz.set(`${i + 1} / ${n} 쪽`, i / n);
+          if (mode.get() === 'img') {
+            await D.bake(pagesWith, prog);
+            toast('교정을 적용했습니다. 저장하면 지운 내용은 파일에서 복구할 수 없습니다', 'ok');
+          } else {
+            // 「글자만 제거」: 상자 아래에 주석(메모·글상자)·양식 칸이 있으면 그 내용은 글자 제거로 지워지지 않으므로 그 쪽만 그림으로 바꾼다
+            const force = await pagesWithAnnotUnderBox(pagesWith);
+            await D.bake(force, prog, { boxText: true });
+            toast(force.length ? `교정을 적용했습니다. 상자 아래에 주석·양식 칸이 있던 ${force.map(i => i + 1).join(', ')}쪽은 그림으로 바꿨습니다` : '교정을 적용했습니다 (글자만 제거: 일부 글자는 남을 수 있습니다)', 'ok');
+          }
         } catch (e) { err(e); return false; } finally { bz.close(); }
       },
     }],
@@ -433,7 +573,8 @@ export const TOOLS2 = [
   T('underline', 'edit', '밑줄', 'underline', '#e1251b', '글자를 드래그해 밑줄을 긋습니다.', () => V.setTool('underline')),
   T('strike', 'edit', '취소선', 'strike', '#6b7280', '글자를 드래그해 취소선을 긋습니다.', () => V.setTool('strike')),
   T('shape', 'edit', '도형 · 선 · 화살표', 'shape', '#0f9d8a', '사각형·원·선·화살표를 그립니다.', () => V.setTool('shape')),
-  T('redact', 'edit', '교정 (영구 삭제)', 'redact', '#b91c1c', '개인정보 등을 영구히 지웁니다 (검은 상자).', () => V.setTool('redact')),
+  T('redact', 'edit', '교정 (영구 삭제)', 'redact', '#b91c1c', '개인정보 등을 영구히 지웁니다 (검은 상자 또는 모자이크).', () => { S.style.rmode = 'box'; V.setTool('redact'); }),
+  T('redact-mosaic', 'edit', '모자이크로 가리기', 'redact', '#b91c1c', '영역을 드래그해 모자이크(픽셀)로 영구히 가립니다.', () => { S.style.rmode = 'mosaic'; S.style.rlevel ||= 2; V.setTool('redact'); }),
   T('redact-find', 'edit', '검색해서 교정 표시', 'search', '#b91c1c', '주민번호·전화번호·단어를 찾아 한꺼번에 표시합니다.', redactSearchDialog),
   T('redact-apply', 'edit', '교정 적용', 'redact', '#b91c1c', '표시한 부분을 되돌릴 수 없게 삭제합니다.', redactApplyDialog),
   T('forms', 'edit', '양식 만들기', 'form', '#c026d3', '입력칸(텍스트·체크박스·목록·서명란)을 만듭니다.', formsDialog),

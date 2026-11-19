@@ -1,7 +1,7 @@
 // PDF 처리 코어 (pdf-lib / pdf.js 래퍼). 모든 처리는 브라우저 안에서만 이루어집니다.
 import { fontBytes, hasBold, measure, baseOf } from './textfonts.js';
 const L = window.PDFLib;
-const { PDFDocument, degrees, rgb, BlendMode, LineCapStyle, beginMarkedContent, endMarkedContent, decodePDFRawStream, PDFName, PDFRawStream, PDFArray, PDFDict } = L;
+const { PDFDocument, degrees, rgb, BlendMode, LineCapStyle, beginMarkedContent, endMarkedContent, decodePDFRawStream, PDFName, PDFRawStream, PDFArray, PDFDict, PDFRef, PDFNull, PDFNumber, PDFStream } = L;
 
 export const WM_TAG = 'JVMWM';
 export const FS = 4 / 3;                     // 100% 배율 = 1pt 당 4/3 css px (96dpi)
@@ -167,12 +167,14 @@ export async function flatten(bytes, overlays, imgs) {
     }
     return segs;
   };
+  let anyKill = false;
   for (const [pi, list] of Object.entries(overlays)) {
     const page = pages[+pi];
     if (!page || !list.length) continue;
     const g = geom(page);
     // 본문 수정·교정: 원본 글자를 PDF 내부에서 실제로 지운다 (실패해도 위에 덮는 방식으로 가려짐)
     const kills = list.filter(o => (o.type === 'whiteout' && o.edit) || o.type === 'redact');
+    if (kills.length) anyKill = true;
     if (kills.length) { try { stripPageText(doc, page, kills.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h, by: o.type === 'whiteout' ? o.by : undefined, size: o.size }))); } catch (e) { console.warn('원본 글자 제거 실패', e); } }
     for (const o of list) {
       const ang = degrees(g.r);
@@ -254,7 +256,8 @@ export async function flatten(bytes, overlays, imgs) {
       }
     }
   }
-  return doc.save();
+  // 바꿔 낀 콘텐츠 스트림의 옛 원본(글자)이 파일에 남지 않게. 글자 제거(교정·본문 수정)가 있으면 정리 실패 때 저장을 멈춘다
+  return finalizeSave(doc, {}, { strict: anyKill });
 }
 
 // ---------- 페이지 구성 ----------
@@ -267,16 +270,20 @@ export async function applyPlan(bytes, plan) {
     plan.forEach(p => { if (p.rot) pages[p.src].setRotation(degrees((pages[p.src].getRotation().angle + p.rot + 360) % 360)); });
     const keep = new Set(plan.map(p => p.src));
     for (let i = pages.length - 1; i >= 0; i--) if (!keep.has(i)) src.removePage(i);
-    return src.save();
+    return finalizeSave(src);                  // 지운 쪽 개체가 파일에 남지 않게
   }
+  detachPageLinks(src);
   const out = await PDFDocument.create();
+  const pos = new Map();
   for (const it of plan) {
     if (it.blank) { out.addPage([it.w, it.h]); continue; }
     const [p] = await out.copyPages(src, [it.src]);
     if (it.rot) p.setRotation(degrees((p.getRotation().angle + it.rot + 360) % 360));
+    if (!pos.has(it.src)) pos.set(it.src, out.getPageCount());
     out.addPage(p);
   }
-  return out.save();
+  relinkPageLinks(out, k => pos.get(k));
+  return finalizeSave(out);
 }
 
 export const extractPages = (bytes, idxs) => applyPlan(bytes, idxs.map(src => ({ src, rot: 0 })));
@@ -285,18 +292,23 @@ export async function mergePdfs(list) {
   const out = await PDFDocument.create();
   for (const b of list) {
     const d = await PDFDocument.load(b);
+    detachPageLinks(d);
+    const start = out.getPageCount();
     const pages = await out.copyPages(d, d.getPageIndices());
     pages.forEach(p => out.addPage(p));
+    relinkPageLinks(out, k => start + k, new Set(pages.map((_, i) => start + i)));
   }
-  return out.save();
+  return finalizeSave(out);
 }
 
 export async function insertPdf(bytes, atIndex, otherBytes) {
   const doc = await PDFDocument.load(bytes);
   const o = await PDFDocument.load(otherBytes);
+  detachPageLinks(o);
   const pages = await doc.copyPages(o, o.getPageIndices());
   pages.forEach((p, i) => doc.insertPage(atIndex + i, p));
-  return doc.save();
+  relinkPageLinks(doc, k => atIndex + k, new Set(pages.map((_, i) => atIndex + i)));
+  return finalizeSave(doc);
 }
 
 // ---------- 사진 -> PDF ----------
@@ -337,7 +349,7 @@ export async function imagesToPdf(items, { size = 'fit', margin = 0, quality = 0
     i++;
     await new Promise(r => setTimeout(r));
   }
-  return out.save();
+  return finalizeSave(out);
 }
 
 // ---------- 워터마크 ----------
@@ -377,7 +389,7 @@ export async function addWatermark(bytes, o) {
     }
     page.pushOperators(endMarkedContent());
   }
-  return doc.save();
+  return finalizeSave(doc);
 }
 
 // 이 앱이 넣은 워터마크(표식 포함) + PDF 표준 Watermark 주석을 제거
@@ -410,12 +422,13 @@ export async function removeWatermark(bytes) {
       }
     }
   }
-  return { bytes: await doc.save(), removed };
+  return { bytes: await finalizeSave(doc), removed };
 }
 
 // ---------- 보안 ----------
 export async function encryptPdf(bytes, { user, owner, print, copy, edit }) {
-  const doc = await PDFDocument.load(bytes);
+  // 암호를 걸기 전에 정리한 사본을 만든다 (암호화한 뒤에는 개체를 고칠 수 없음)
+  const doc = await PDFDocument.load(await finalizeSave(await PDFDocument.load(bytes)));
   await doc.encrypt({
     userPassword: user || '',
     ownerPassword: owner || user,
@@ -427,7 +440,7 @@ export async function encryptPdf(bytes, { user, owner, print, copy, edit }) {
 export async function optimize(bytes) {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   doc.setTitle(''); doc.setAuthor(''); doc.setSubject(''); doc.setKeywords([]); doc.setProducer(''); doc.setCreator('');
-  return doc.save({ useObjectStreams: true });
+  return finalizeSave(doc, { useObjectStreams: true });
 }
 
 // ---------- pdf.js 렌더 ----------
@@ -443,31 +456,252 @@ export async function renderCanvas(pdf, num, scale, cv) {
   return cv;
 }
 
+// ---------- 모자이크 (교정의 가리는 방식) ----------
+// 칸 크기(pt) = max(최소값, 영역 짧은 변 / 나눗수). 글줄 하나(높이 약 12~16pt)를 가리면 한 글자가 2칸 남짓이 되어 읽을 수 없다
+export const MOSAIC_LEVELS = [null, { label: '약하게', div: 4, min: 5 }, { label: '보통', div: 3, min: 7 }, { label: '강하게', div: 2, min: 10 }];
+export const MOSAIC_NOTE = '아주 중요한 정보(주민번호·계좌 등)는 모자이크보다 검은 상자를 권장합니다(모자이크는 패턴 분석으로 추정될 수 있습니다). 모자이크는 「강하게」가 더 안전합니다.';
+export function mosaicTile(w, h, level) {
+  const L = MOSAIC_LEVELS[level] || MOSAIC_LEVELS[2];
+  return Math.max(L.min, Math.min(Math.abs(w), Math.abs(h)) / L.div);
+}
+// ctx 캔버스의 픽셀 영역(x,y,w,h)을 약 tile 픽셀 칸마다 평균색으로 칠한다. 캔버스 밖은 잘라 내고, 자투리 칸은 만들지 않는다
+export function pixelate(ctx, x, y, w, h, tile) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  if (w < 0) { x += w; w = -w; }
+  if (h < 0) { y += h; h = -h; }
+  if (![x, y, w, h, tile].every(Number.isFinite)) return;
+  const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(W, Math.ceil(x + w)), y1 = Math.min(H, Math.ceil(y + h));
+  const iw = x1 - x0, ih = y1 - y0;
+  if (iw <= 0 || ih <= 0) return;
+  const t = Math.max(2, tile);
+  const cuts = (len) => { const n = Math.max(1, Math.round(len / t)); return Array.from({ length: n + 1 }, (_, i) => Math.round(i * len / n)); };
+  const cx = cuts(iw), cy = cuts(ih);
+  const img = ctx.getImageData(x0, y0, iw, ih), d = img.data;
+  for (let a = 0; a + 1 < cy.length; a++) {
+    for (let b = 0; b + 1 < cx.length; b++) {
+      let r = 0, g = 0, bl = 0, n = 0;
+      for (let yy = cy[a]; yy < cy[a + 1]; yy++) for (let xx = cx[b], k = (yy * iw + xx) * 4; xx < cx[b + 1]; xx++, k += 4) {
+        const al = d[k + 3] / 255;                      // 투명 픽셀은 흰색으로 본다
+        r += d[k] * al + 255 * (1 - al); g += d[k + 1] * al + 255 * (1 - al); bl += d[k + 2] * al + 255 * (1 - al); n++;
+      }
+      if (!n) continue;
+      r = Math.round(r / n); g = Math.round(g / n); bl = Math.round(bl / n);
+      for (let yy = cy[a]; yy < cy[a + 1]; yy++) for (let xx = cx[b], k = (yy * iw + xx) * 4; xx < cx[b + 1]; xx++, k += 4) { d[k] = r; d[k + 1] = g; d[k + 2] = bl; d[k + 3] = 255; }
+    }
+  }
+  ctx.putImageData(img, x0, y0);
+}
+
+// ---------- 안전 복사 · 정리 · 저장 마무리 ----------
+// pdf-lib copyPages 는 쪽의 링크(/Dest [쪽 …])·양식 칸 부모(/Parent → /Kids)·주석 /P 를 따라가 다른 쪽을
+// 쪽 트리에 없는 「고아 쪽」으로 통째로 복사하고, removePage 는 지운 쪽 개체를 파일에 그대로 남긴다(지운·가린 쪽 글자가 남는 원인).
+// 1) 복사 전 detachPageLinks: 링크 목적지를 쪽 번호 표시로 바꿔 두었다가 복사 뒤 relinkPageLinks 로 새 쪽에 다시 잇는다.
+// 2) 저장 전 pruneUnreachable: 문서 뿌리에서 닿지 않는 개체를 지우고, 쪽 트리 밖 쪽·쪽에 달리지 않은 주석으로 가는 참조는 끊는다.
+const N = s => PDFName.of(s);
+const isPageDict = o => o instanceof PDFDict && o.get(N('Type')) === N('Page');
+const isAnnotDict = o => o instanceof PDFDict && !(o instanceof PDFStream) && o.get(N('Rect')) instanceof PDFArray && o.get(N('Subtype')) instanceof PDFName;
+function destHolder(annot) {                  // [담는 개체, 키] : 링크 목적지 배열이 들어 있는 곳
+  if (annot.get(N('Dest'))) return [annot, 'Dest'];
+  const a = annot.lookup(N('A'));
+  if (a instanceof PDFDict && a.get(N('S')) === N('GoTo') && a.get(N('D'))) return [a, 'D'];
+  return null;
+}
+// strict(교정): 주석의 /P, 양식 칸 /Parent, 다른 쪽 주석으로 가는 /IRT·/Popup 까지 미리 끊는다
+export function detachPageLinks(src, { strict = false } = {}) {
+  const ctx = src.context, pages = src.getPages();
+  const idx = new Map(pages.map((p, i) => [p.ref.toString(), i]));
+  for (const p of pages) {
+    const arr = p.node.lookup(N('Annots'));
+    if (!(arr instanceof PDFArray)) continue;
+    const own = new Set(arr.asArray().map(r => String(r)));
+    for (let j = 0; j < arr.size(); j++) {
+      const an = arr.lookup(j);
+      if (!(an instanceof PDFDict)) continue;
+      if (strict) {
+        an.delete(N('P'));
+        if (an.get(N('Subtype')) === N('Widget')) an.delete(N('Parent'));
+        for (const k of ['IRT', 'Popup']) { const v = an.get(N(k)); if (v && !own.has(String(v))) an.delete(N(k)); }
+      }
+      const hd = destHolder(an);
+      if (!hd) continue;
+      const [obj, key] = hd;
+      let d = obj.lookup(N(key));
+      if (!(d instanceof PDFArray) || !d.size() || !(d.get(0) instanceof PDFRef)) continue;   // 이름 목적지는 그대로
+      const k = idx.get(d.get(0).toString());
+      if (k === undefined) continue;
+      d = d.clone(ctx); obj.set(N(key), d);
+      d.set(0, PDFNumber.of(k));
+    }
+  }
+}
+// 복사가 끝난 out 문서에서 쪽 번호 표시를 실제 쪽 참조로 되돌린다. map: 원본 쪽 번호 → out 쪽 번호(없으면 undefined), only: 대상 out 쪽 번호
+export function relinkPageLinks(out, map = k => k, only = null) {
+  const pages = out.getPages();
+  pages.forEach((p, pi) => {
+    if (only && !only.has(pi)) return;
+    const arr = p.node.lookup(N('Annots'));
+    if (!(arr instanceof PDFArray)) return;
+    for (let j = arr.size() - 1; j >= 0; j--) {
+      const an = arr.lookup(j);
+      if (!(an instanceof PDFDict)) continue;
+      const hd = destHolder(an);
+      if (!hd) continue;
+      const d = hd[0].lookup(N(hd[1]));
+      if (!(d instanceof PDFArray && d.get(0) instanceof PDFNumber)) continue;
+      const t = map(d.get(0).asNumber());
+      if (t !== undefined && pages[t]) d.set(0, pages[t].ref);
+      else if (an.get(N('Subtype')) === N('Link')) arr.remove(j);           // 빠진 쪽으로 가는 링크는 없앤다
+      else d.set(0, PDFNull);
+    }
+  });
+}
+// 문서 뿌리(Root·Info·Encrypt)에서 닿지 않는 간접 개체를 지운다. 되돌리기 함수를 돌려준다(저장 확인 실패 때 사용).
+export async function pruneUnreachable(doc) {
+  try { await doc.flush(); } catch { /* 넣을 글꼴·그림 없음 */ }
+  const ctx = doc.context;
+  // 쪽 트리를 직접 따라간다 (doc.getPages() 는 removePage 뒤에도 지운 쪽을 기억하고 있다)
+  const leaves = [], visited = new Set();
+  const climb = ref => {
+    if (!(ref instanceof PDFRef) || visited.has(ref.toString())) return;
+    visited.add(ref.toString());
+    const node = ctx.lookup(ref);
+    if (!(node instanceof PDFDict)) return;
+    if (node.get(N('Type')) === N('Pages')) { const kids = node.lookup(N('Kids')); if (kids instanceof PDFArray) for (const k of kids.asArray()) climb(k); }
+    else leaves.push([ref, node]);
+  };
+  const root0 = ctx.trailerInfo.Root instanceof PDFRef ? ctx.lookup(ctx.trailerInfo.Root) : null;
+  if (root0 instanceof PDFDict) climb(root0.get(N('Pages')));
+  const inTree = new Set(leaves.map(([r]) => r.toString()));
+  const ops = [];                                       // 되돌리기 기록
+  // 트리 밖 쪽(지운 쪽)으로 가는 링크 주석은 쪽의 /Annots 에서 뺀다
+  for (const [, node] of leaves) {
+    const a = node.lookup(N('Annots'));
+    if (!(a instanceof PDFArray)) continue;
+    for (let j = a.size() - 1; j >= 0; j--) {
+      const r = a.get(j), an = a.lookup(j);
+      if (!(an instanceof PDFDict) || an.get(N('Subtype')) !== N('Link')) continue;
+      const hd = destHolder(an), d = hd && hd[0].lookup(N(hd[1]));
+      const t = d instanceof PDFArray ? d.get(0) : null;
+      if (t instanceof PDFRef && isPageDict(ctx.lookup(t)) && !inTree.has(t.toString())) { ops.push(() => a.insert(j, r)); a.remove(j); }
+    }
+  }
+  const onPage = new Set();
+  for (const [, node] of leaves) { const a = node.lookup(N('Annots')); if (a instanceof PDFArray) for (const r of a.asArray()) if (r instanceof PDFRef) onPage.add(r.toString()); }
+  const seen = new Set(), stack = [];
+  // 끊을 참조인가: 쪽 트리 밖 쪽, 또는 어느 쪽 /Annots 에도 없는 주석(지운 쪽의 양식 칸·메모 등)
+  const dead = (v, t) => (isPageDict(t) && !inTree.has(v.toString())) || (isAnnotDict(t) && !onPage.has(v.toString()));
+  const walk = o => {
+    if (o instanceof PDFStream) o = o.dict;
+    if (o instanceof PDFDict) {
+      for (const [k, v] of o.entries()) {
+        if (v instanceof PDFRef) {
+          const t = ctx.lookup(v);
+          if (dead(v, t)) { ops.push(() => o.set(k, v)); o.delete(k); continue; }
+          if (!seen.has(v.toString())) { seen.add(v.toString()); if (t !== undefined) stack.push(t); }
+        } else if (v instanceof PDFDict || v instanceof PDFArray || v instanceof PDFStream) stack.push(v);
+      }
+    } else if (o instanceof PDFArray) {
+      for (let i = o.size() - 1; i >= 0; i--) {
+        const v = o.get(i);
+        if (v instanceof PDFRef) {
+          const t = ctx.lookup(v);
+          if (dead(v, t)) {
+            if (isPageDict(t)) { ops.push(() => o.set(i, v)); o.set(i, PDFNull); }      // 목적지 배열 [쪽 /XYZ …] 은 자리를 지킨다
+            else { ops.push(() => o.insert(i, v)); o.remove(i); }                         // 주석 목록(/Fields·/Kids 등)에서는 뺀다
+            continue;
+          }
+          if (!seen.has(v.toString())) { seen.add(v.toString()); if (t !== undefined) stack.push(t); }
+        } else if (v instanceof PDFDict || v instanceof PDFArray || v instanceof PDFStream) stack.push(v);
+      }
+    }
+  };
+  const ti = ctx.trailerInfo;
+  // 양식: 칸(위젯)이 모두 쪽에 없는 필드는 /Fields·/Kids 에서 뺀다 (지운 쪽의 입력값 /V 가 남지 않게)
+  const af = ti.Root instanceof PDFRef ? ctx.lookup(ti.Root)?.lookup?.(N('AcroForm')) : null;
+  const pruneFields = arr => {
+    if (!(arr instanceof PDFArray)) return 0;
+    let alive = 0;
+    for (let i = arr.size() - 1; i >= 0; i--) {
+      const r = arr.get(i), f = r instanceof PDFRef ? ctx.lookup(r) : r;
+      if (!(f instanceof PDFDict)) { alive++; continue; }
+      let live;
+      if (isAnnotDict(f)) live = r instanceof PDFRef && onPage.has(r.toString());
+      else { const kids = f.lookup(N('Kids')); const had = kids instanceof PDFArray && kids.size() > 0; live = !had || pruneFields(kids) > 0; }
+      if (live) alive++; else { ops.push(() => arr.insert(i, r)); arr.remove(i); }
+    }
+    return alive;
+  };
+  if (af instanceof PDFDict) pruneFields(af.lookup(N('Fields')));
+  for (const r of [ti.Root, ti.Info, ti.Encrypt]) if (r instanceof PDFRef) { seen.add(r.toString()); const t = ctx.lookup(r); if (t !== undefined) stack.push(t); }
+  while (stack.length) walk(stack.pop());
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) if (!seen.has(ref.toString())) { ops.push(() => ctx.assign(ref, obj)); ctx.delete(ref); }
+  return () => { for (let i = ops.length - 1; i >= 0; i--) ops[i](); };
+}
+// 모든 PDF 저장의 마무리: 닿지 않는 개체 정리 → 저장 → 다시 열리는지 확인.
+// strict(교정 경로): 정리·확인이 실패하면 저장을 멈추고 오류를 낸다(원본이 남을 수 있으므로).
+// 그 밖: 실패하면 정리 없이 저장하고 콘솔에만 남긴다(저장 실패가 더 나쁘다).
+export async function finalizeSave(doc, opts = {}, { strict = false } = {}) {
+  // 양식 외형은 고치는 곳(core2 fill·addFormFields)에서 한글 글꼴로 직접 만든다. 저장 때 다시 만들면
+  // 쓰지 않는 기본 글꼴(Helvetica) 개체가 정리 뒤에 생겨 고아로 남는다
+  opts = { updateFieldAppearances: false, ...opts };
+  const STRICT_ERR = '가린 내용을 파일에서 완전히 지우는 정리에 실패해 저장을 멈췄습니다. 다시 시도하거나 다른 방식으로 교정해 주세요';
+  let undo = null;
+  try { undo = await pruneUnreachable(doc); }
+  catch (e) { if (strict) { console.error(e); throw new Error(STRICT_ERR); } console.warn('PDF 정리 생략', e); return doc.save(opts); }
+  try {
+    const out = await doc.save(opts);
+    await PDFDocument.load(out, { ignoreEncryption: true, updateMetadata: false });
+    return out;
+  } catch (e) {
+    if (strict) { console.error(e); throw new Error(STRICT_ERR); }
+    console.warn('PDF 정리 결과를 다시 열 수 없어 정리 없이 저장', e);
+    try { undo(); } catch { /* 되돌리기 실패 */ }
+    return doc.save(opts);
+  }
+}
+// 여러 쪽을 한 번에 복사(공유 글꼴·그림을 한 벌만). 링크는 복사 전에 쪽 번호로 바꿔 둔다
+async function copyMany(out, src, indices) {
+  return indices.length ? out.copyPages(src, indices) : [];
+}
+
 // 선택한 페이지를 그림으로 다시 만들어 문서를 재구성 (압축·배경 정리·암호 해제용)
 export async function rasterRebuild(bytes, pdf, { indices = null, scale = 1.5, quality = 0.7, filter = null }, prog) {
   const sel = indices ? new Set(indices) : null;
-  const src = sel && sel.size < pdf.numPages ? await PDFDocument.load(bytes) : null;
+  const n = pdf.numPages;
   const out = await PDFDocument.create();
-  for (let i = 0; i < pdf.numPages; i++) {
-    const pr = prog ? prog(i / pdf.numPages, `${i + 1} / ${pdf.numPages} 페이지 처리 중`) : true;
+  const slots = new Array(n).fill(null);            // 쪽 자리: 복사한 쪽 또는 새 그림 쪽
+  let stopAt = n;
+  for (let i = 0; i < n; i++) {
+    const pr = prog ? prog(i / n, `${i + 1} / ${n} 페이지 처리 중`) : true;
     if (pr === false) throw new Error('취소되었습니다');
-    if (pr === 'stop') {                                         // 중지: 여기까지 처리한 쪽 + 남은 쪽은 원본 그대로
-      const rest = src || await PDFDocument.load(bytes);
-      for (let k = i; k < pdf.numPages; k++) { const [rp] = await out.copyPages(rest, [k]); out.addPage(rp); }
-      break;
-    }
-    if (sel && !sel.has(i)) { const [p] = await out.copyPages(src, [i]); out.addPage(p); continue; }
+    if (pr === 'stop') { stopAt = i; break; }       // 중지: 여기까지 처리한 쪽 + 남은 쪽은 원본 그대로
+    if (sel && !sel.has(i)) continue;
     const page = await pdf.getPage(i + 1);
     const v1 = page.getViewport({ scale: 1 });
     const cv = await renderCanvas(pdf, i + 1, scale);
     if (filter) filter(cv);
     const jpg = await out.embedJpg(await canvasBytes(cv, quality));
     cv.width = 0;
-    const np = out.addPage([v1.width, v1.height]);
-    np.drawImage(jpg, { x: 0, y: 0, width: v1.width, height: v1.height });
+    slots[i] = { size: [v1.width, v1.height], jpg };
     await new Promise(r => setTimeout(r));
   }
-  return out.save();
+  const keep = [];
+  for (let i = 0; i < n; i++) if (!slots[i] || i >= stopAt) { slots[i] = null; keep.push(i); }
+  let copied = [];
+  if (keep.length) {                                // 암호 문서(전체를 그림으로)는 원본을 pdf-lib 로 열지 않는다
+    const src = await PDFDocument.load(bytes);
+    detachPageLinks(src);
+    copied = await copyMany(out, src, keep);
+  }
+  let c = 0;
+  for (let i = 0; i < n; i++) {
+    if (!slots[i]) { out.addPage(copied[c++]); continue; }
+    const np = out.addPage(slots[i].size);
+    np.drawImage(slots[i].jpg, { x: 0, y: 0, width: slots[i].size[0], height: slots[i].size[1] });
+  }
+  relinkPageLinks(out);
+  return finalizeSave(out);
 }
 
 // ---------- 배경 정리 필터 ----------
@@ -572,7 +806,7 @@ export async function addInvisibleText(bytes, results) {
       try { page.drawText(t, { x: px, y: py, size, font, opacity: 0, rotate: degrees(g.r) }); } catch { /* 지원하지 않는 글자 건너뜀 */ }
     }
   }
-  return doc.save();
+  return finalizeSave(doc);
 }
 
 // ======================== 원본 글자 실제 제거 (본문 수정 · 교정) ========================

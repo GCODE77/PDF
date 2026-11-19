@@ -1,6 +1,6 @@
 # PDF 공작소 — 세션 인수인계 (HANDOFF)
 
-> 마지막 정리: 2026-11-19 · 현재 버전 **v1.8.1** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
+> 마지막 정리: 2026-11-20 · 현재 버전 **v1.9.0** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
 > 사용자와의 대화는 **항상 한국어**로 한다(영어로 답했다가 지적받은 적 있음). 사용자는 비개발자 관점에서 화면·동작을 캡처로 알려 주는 방식으로 피드백한다.
 
 ## 1. 한눈에
@@ -33,6 +33,7 @@
 | 1.7.0 | 변환기 개선: 도면·벡터 그림을 사진으로 가져오기(`layout.js` findFigures/renderRegion, 쪽 전체 사진 옵션), 엑셀 위치·칸크기 격자 재작성+그림, Word 「원본 위치 그대로」 배치(틀·떠 있는 표·고정 그림), 글자 상자 회전 |
 | 1.8.0 | **저장 완료 창**(`state.js savedDialog`, `desktop/main.js` will-download 추적·`open-path`/`show-in-folder`, 열기 허용 목록), **표 인식 개선**(`layout.js` gridLines로 4.5pt 틈새 열 병합, 폼 XObject 행렬 처리, 겹친 표는 가장 작은 표 우선, 엑셀 열·병합 축소), **「애매한 표는 그림으로」**(`tableConfidence`, `opts.tableImage`). 설계·측정 기록: research.md, plan.md, tests/pdf/측정기록.md |
 | 1.8.1 | 홈 최근 파일: 위쪽 「전체 지우기」(별표는 기본 유지)와 「선택」(체크박스 선택 삭제, `home.js` selecting/selected, `recent.js` removeMany·clearRecent(includeStar)) |
+| 1.9.0 | **모자이크 가리기**(교정 도구의 가리는 방식 선택, `pdfcore.js` pixelate·mosaicTile), **저장 때 원본 잔존 수정**(`finalizeSave`·`pruneUnreachable`·`detachPageLinks`로 모든 저장 경로 정리, 쪽 삭제·추출·순서·합치기·교정에서 고아 쪽이 남던 문제), OCR·교정 경합 잠금(`D.withDocLock`), 「글자만 제거」 기본값을 그림 방식으로 |
 
 ## 3. 코드 지도 (`js/`)
 - `main.js` 진입점. **문서 탭 관리**(`docs[]`, `activeId`, `stashActive/switchTo/closeTab`), `S.docId()`, `S.applyToDoc(docId, fn, {pages})`(보고 있지 않은 탭에도 결과 적용), 홈 카드, 저장/공유, 기본 앱 안내 대화상자, 단축키
@@ -52,6 +53,8 @@
 ## 4. 핵심 설계 메모
 - **편집 모델**: 편집은 페이지 좌표(pt, 왼쪽 위 원점) 오버레이 개체(`S.overlays[pageIndex]`)로 쌓고 저장/구조 변경 때 `flatten`으로 PDF에 굽는다. 이력 스냅숏 `{bytes, ov}`.
 - **본문 수정** = 화이트박스(`whiteout.edit`) + 새 텍스트 개체. flatten 때 `stripPageText`가 원본 글자 출력(Tj/TJ)을 실제 제거(글자가 줄 안에서 시작하는 것만). 교정(`redact`)도 같은 경로.
+- **모자이크 교정**(미출시, 다음 버전 후보) = `redact` 개체에 `mosaic:1|2|3`(약하게·보통·강하게). `doc.js flattenAll`이 모자이크를 뺀 개체를 굽고 그 쪽을 `core2.rasterizePages(…, mos)`로 그림으로 다시 만들며 `pdfcore.pixelate`(칸 = max(최소 5·7·10pt, 짧은 변/4·3·2), 칸 평균색)로 픽셀화한다. 저장·flush·다른 탭 적용(`main.js applyToDoc`)도 같은 경로라 적용 전 저장해도 원본이 남지 않는다. 화면 미리보기는 `viewer.js mosaicPreview`(쪽 캔버스에서 떠서 같은 칸 크기). 교정 적용은 `D.bake`로 실행 취소 한 번에 돌아간다.
+- **교정 저장 안전장치**: pdf-lib `copyPages`는 링크(/Dest)·양식 칸(/Parent→/Kids)·주석 /P를 따라 다른 쪽을 쪽 트리 밖 「고아 쪽」으로 통째로 복사한다(그림으로 바꾼 쪽 원본이 남던 결함, 1.8.1 이전 배포본에도 있음). `pdfcore.detachPageLinks`(복사 전 참조 끊기, 링크는 쪽 번호로 바꿨다가 `relinkPageLinks`로 다시 연결) + `pruneUnreachable`(Root·Info에서 닿지 않는 개체 삭제, 트리 밖 쪽 참조는 null)를 `rasterizePages`·`rasterRebuild`·`flatten`(글자 제거가 있을 때)에 건다. 교정을 굽는 순간(`D.flush/bake`, 다른 탭 `applyToDoc`) 그 문서의 OCR 작업은 `ocrjob.cancelForRedact`로 취소하고 임시저장을 버린다. 검색 표시는 굽지 않고 원본 글자 층에서 pdf.js 조각 실제 폭 + 렌더 잉크 맞춤(`tools2.findRedactBoxes`)으로 찾으며 세로·회전 글자도 포함한다.
 - **분석기**: pdf.js `getOperatorList`로 선/사각형/이미지 위치, `getTextContent`로 글줄. pdf.js가 끼워 넣는 공백 조각은 버리고 간격으로 재계산. 글꼴 이름은 `fontExtraProperties:true` 문서에서만 읽힌다.
 - **OCR 작업**: 스냅숏 바이트를 별도 pdf.js 문서로 열어 워커 풀(최대 4, 폰 1)이 쪽 단위로 처리 → 쪽마다 IndexedDB 저장 → 끝나면 `S.applyToDoc`. 취소는 임시저장 유지, 중지는 그때까지 적용. 쪽 수가 바뀌면 적용 거부.
 - **busy**: `#busy`는 z-index 90(모달 60보다 위). `{stoppable:true}`면 `b.stopped`를 작업이 확인해 부분 결과를 낸다(변환·압축·배경정리·빈쪽·중복·방향·이미지 추출).
@@ -87,6 +90,8 @@
 - 「애매한 표는 그림으로」 임계값(`layout.js TABLE_Q`)은 오너 샘플의 정상 표 분포에 여유를 둔 값이라 실제 애매한 문서에서 맞는지 미검증. 합성 PDF(`tests/pdf/f_애매합성.pdf`)로만 확인.
 - `/Rotate=90`만 걸린 쪽은 글자가 세로로 읽혀 글이 빠짐(미해결, 난이도 중간: 회전 없는 뷰포트로 분석하고 색 표본·renderRegion·쪽 크기까지 맞춰야 하며 출력 방향 결정 필요). 칸 안에 사진이 든 표가 그림으로 바뀔 때 사진 중복 여부, 폼 XObject가 실문서에 얼마나 있는지 미확인.
 - 엑셀은 한 시트에 열 격자가 하나라 병합이 여전히 많다. 가운데 정렬 제목이 최대 약 20pt 옮겨질 수 있다. 실제 Office 화면은 못 봤다.
+- 교정 「글자만 제거 (일부만 지워질 수 있음)」는 글자 출력 명령이 상자 안에서 시작할 때만 지운다. 긴 글줄 속 글자(검색 표시가 만드는 단어 상자가 이 경우), XObject 안 글자, 목차·문서 정보가 남는다(시험으로 확인). 상자 아래 주석·양식 칸이 있는 쪽은 자동으로 그림으로 바꾼다(`tools2.pagesWithAnnotUnderBox`). 「교정 적용」 없이 저장·공유·변환·구조 변경으로 굽는 경로(`doc.flattenAll` 기본값)는 교정 상자가 있는 쪽을 항상 그림으로 굽는다. 글자만 제거는 사용자가 대화상자에서 고를 때만(`bake(…, {boxText:true})`).
+- 저장 마무리 `pdfcore.finalizeSave`: 모든 pdf-lib 저장이 거친다. `pruneUnreachable`(뿌리에서 닿지 않는 개체 삭제, 트리 밖 쪽·쪽에 없는 주석 참조 끊기, 위젯이 모두 사라진 양식 필드 제거) 뒤 저장하고 다시 열어 본다. 교정 경로(strict)는 실패 시 저장 중단, 그 밖은 정리 없이 저장(콘솔 경고). 지운 쪽으로 가는 링크 주석은 없애고, 목차 항목은 제목이 남고 목적지만 끊긴다(PyMuPDF 등은 1쪽으로 해석). `removePage` 뒤 `doc.getPages()`는 지운 쪽을 계속 돌려주므로 prune 은 쪽 트리를 직접 따라간다. 저장 때 양식 외형 재생성은 끈다(`updateFieldAppearances:false`, 외형은 core2 가 한글 글꼴로 직접 만든다). 시험용 기계 검사는 scratchpad 의 v3/leakcheck.py(작성자 자체 판정). OCR 결과 넣기(`S.applyToDoc`)와 교정 굽기(`D.bake`)는 `D.withDocLock` 문서별 잠금으로 차례로 실행하고, 넣기 직전 바이트가 바뀌었으면 결과를 버린다.
 - 합격 판정 스크립트는 작업자가 썼다. 별도 독립 검증자가 1~3단계를 측정했고 결함 3건 중 2건을 고쳤으며, 그 뒤 고친 `layout.js`를 독립 검증자가 다시 보지는 않았다.
 
 ## 8. 자주 쓰는 명령

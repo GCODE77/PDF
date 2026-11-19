@@ -761,7 +761,7 @@ export const PANEL = [
   { id: 'merge' },
   { label: '페이지 구성', icon: 'grid', color: '#2f9e44', kids: ['organize', 'blankpages', 'duppages', 'autorotate', 'rotate', 'delpages', 'extract', 'insert', 'split', 'crop'] },
   { id: 'compress' },
-  { label: '교정', icon: 'redact', color: '#b91c1c', kids: ['redact', 'redact-find', 'redact-apply'] },
+  { label: '교정', icon: 'redact', color: '#b91c1c', kids: ['redact', 'redact-mosaic', 'redact-find', 'redact-apply'] },
   { id: 'forms' },
   { id: 'signreq' },
   { label: '채우기 및 서명', icon: 'sign', color: '#5258e4', kids: ['sign', 'fillform', 'stamp'] },

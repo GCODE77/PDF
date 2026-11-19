@@ -1,7 +1,7 @@
 // 문서 상태(열기 · 이력 · 저장)
 import { S, emit, toast, busy, modal, h, fmtSize, baseName } from './state.js';
 import * as core from './pdfcore.js';
-import { addFormFields } from './core2.js';
+import { addFormFields, rasterizePages } from './core2.js';
 
 let pdfjs;
 export async function getPdfjs() {
@@ -111,20 +111,66 @@ export async function applyBytes(bytes) {
   await loadBytes(bytes, null, { keepPage: true });
 }
 
-// 편집 내용을 문서에 반영한 바이트(현재 화면 상태는 유지)
-async function flat() {
-  let b = await core.flatten(S.bytes, S.overlays, S.imgs);
-  if (Object.values(S.overlays).some(l => l.some(o => o.type === 'field'))) b = await addFormFields(b, S.overlays);
+// 편집 개체를 PDF에 굽는다. 교정 상자(검은 상자·모자이크)가 있는 쪽은 그림으로 다시 만든다(원본 복구 불가):
+// 모자이크 영역은 픽셀화, 검은 상자는 검게 칠한 채로 그림이 된다.
+// raster: 그 밖에 그림으로 바꿀 쪽. boxText: 사용자가 「글자만 제거」를 고른 경우에만 true (검은 상자 쪽을 그림으로 바꾸지 않음)
+const isMosaic = o => o.type === 'redact' && o.mosaic;
+export const redactPages = ov => Object.entries(ov || {}).filter(([, l]) => l.some(o => o.type === 'redact')).map(([i]) => +i);
+export async function flattenAll(bytes, overlays, imgs, raster = [], onProg, { boxText = false } = {}) {
+  const mos = {};
+  for (const [pi, l] of Object.entries(overlays)) { const m = l.filter(isMosaic); if (m.length) mos[pi] = m; }
+  const ov = Object.keys(mos).length ? Object.fromEntries(Object.entries(overlays).map(([pi, l]) => [pi, l.filter(o => !isMosaic(o))])) : overlays;
+  let b = Object.values(ov).some(l => l.length) ? await core.flatten(bytes, ov, imgs) : bytes;
+  if (Object.values(ov).some(l => l.some(o => o.type === 'field'))) b = await addFormFields(b, ov);
+  const pages = [...new Set([...Object.keys(mos).map(Number), ...raster, ...(boxText ? [] : redactPages(overlays))])].sort((a, c) => a - c);
+  if (pages.length) {
+    const pdf = await openPdfjs(b);
+    try { b = await rasterizePages(b, pdf, pages, 2.2, onProg, mos); } finally { killPdf(pdf); }
+  }
   return b;
+}
+export const hasRedact = ov => Object.values(ov || {}).some(l => l.some(o => o.type === 'redact'));
+// 「교정 적용」을 거치지 않고 굽는 경로(저장·공유·변환·구조 변경)에서 교정 상자가 있으면 그림 방식으로 굽고 한 줄 알린다
+async function flat(msg) {
+  const red = hasRedact(S.overlays);
+  const b = await flattenAll(S.bytes, S.overlays, S.imgs);
+  if (red && msg) toast(msg);
+  return b;
+}
+// 교정을 문서에 굽기 전: 이 문서의 진행 중 글자 인식(OCR)을 취소한다 (원본을 읽은 글자가 가린 자리에 다시 들어가지 않게)
+async function stopOcrForRedact() {
+  if (!hasRedact(S.overlays)) return;
+  const J = await import('./ocrjob.js');
+  J.cancelForRedact(S.docId?.());          // 알림은 작업이 실제로 끝나는 쪽(ocrjob)에서 상태와 함께 낸다
+}
+// 문서별 잠금: 교정 굽기와 백그라운드 결과(OCR) 넣기가 겹치지 않게 차례로 실행한다
+const locks = new Map();
+export function withDocLock(id, fn) {
+  const prev = locks.get(id) || Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  const tail = run.catch(() => {});
+  locks.set(id, tail);
+  tail.then(() => { if (locks.get(id) === tail) locks.delete(id); });
+  return run;
+}
+// 교정 적용: 편집 개체를 굽고 지정한 쪽을 그림으로 바꾼다. 실행 취소 한 번으로 표시 상태로 돌아간다
+export async function bake(raster, onProg, opts) {
+  await stopOcrForRedact();                 // 잠금을 기다리기 전에 OCR 취소 표시부터 (넣는 중인 결과를 버리게)
+  return withDocLock(S.docId?.(), async () => {
+    const b = await flattenAll(S.bytes, S.overlays, S.imgs, raster, onProg, opts);
+    await applyBytes(b);
+    return b;
+  });
 }
 export async function currentBytes() {
   if (!hasOverlays()) return S.bytes;
-  return flat();
+  return flat('가림 영역이 있어 해당 쪽을 그림으로 바꿔 저장했습니다');
 }
 // 구조 변경 전에 호출: 편집 내용을 문서에 확정
 export async function flush() {
   if (!hasOverlays()) return S.bytes;
-  const b = await flat();
+  await stopOcrForRedact();
+  const b = await flat('가림 영역이 있어 해당 쪽을 그림으로 바꿨습니다');
   await applyBytes(b);
   return b;
 }

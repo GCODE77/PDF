@@ -1,5 +1,5 @@
 // 새 도구용 PDF 처리: 머리글·쪽번호 · 자르기 · 나누기 · 속성 · 빈 문서/글→PDF · 양식 · 교정 (© 2026 GLORY KIM)
-import { embedKR, geom, hex, renderCanvas } from './pdfcore.js';
+import { embedKR, geom, hex, renderCanvas, pixelate, mosaicTile, detachPageLinks, relinkPageLinks, finalizeSave } from './pdfcore.js';
 
 const L = window.PDFLib;
 const { PDFDocument, degrees, rgb, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = L;
@@ -26,7 +26,7 @@ export async function addHeaderFooter(bytes, opts) {
       page.drawText(x.text, { x: px, y: py, size: opts.size, font, color: hex(opts.color), rotate: degrees(g.r) });
     }
   }
-  return doc.save();
+  return finalizeSave(doc);
 }
 
 // 쪽 자르기: 표시 영역(CropBox)을 줄인다. m = {t,r,b,l} (pt, 화면 기준)
@@ -40,17 +40,19 @@ export async function cropPages(bytes, idx, m) {
     const a = g.d2p(m.l, m.t + h2), c = g.d2p(m.l + w, m.t);
     page.setCropBox(Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]));
   }
-  return doc.save();
+  return finalizeSave(doc);
 }
 
 // 나누기: groups = [[0,1,2],[3,4]] → [{bytes, pages}]
 export async function splitPdf(bytes, groups) {
   const src = await PDFDocument.load(bytes);
+  detachPageLinks(src);
   const out = [];
   for (const g of groups) {
     const d = await PDFDocument.create();
     (await d.copyPages(src, g)).forEach(p => d.addPage(p));
-    out.push({ bytes: await d.save(), pages: g });
+    relinkPageLinks(d, k => { const j = g.indexOf(k); return j < 0 ? undefined : j; });
+    out.push({ bytes: await finalizeSave(d), pages: g });
   }
   return out;
 }
@@ -65,7 +67,7 @@ export async function setMeta(bytes, m) {
   d.setKeywords((m.keywords || '').split(/[,;]\s*/).filter(Boolean));
   d.setCreator(m.creator || ''); d.setProducer(m.producer || 'PDF 공작소');
   d.setModificationDate(new Date());
-  return d.save();
+  return finalizeSave(d);
 }
 
 // 빈 문서 · 글에서 PDF 만들기
@@ -75,7 +77,7 @@ export async function blankPdf(size, landscape, count) {
   let [w, h2] = PAGE_SIZES[size] || PAGE_SIZES.a4;
   if (landscape) [w, h2] = [h2, w];
   for (let i = 0; i < count; i++) d.addPage([w, h2]);
-  return d.save();
+  return finalizeSave(d);
 }
 export async function textToPdf(text, o = {}) {
   const d = await PDFDocument.create();
@@ -104,7 +106,7 @@ export async function textToPdf(text, o = {}) {
       y -= step;
     }
   }
-  return d.save();
+  return finalizeSave(d);
 }
 
 // ---------- 양식 필드 ----------
@@ -142,12 +144,12 @@ export async function fillFormFields(bytes, values, flat) {
   }
   form.updateFieldAppearances(font);
   if (flat) form.flatten();
-  return d.save();
+  return finalizeSave(d);
 }
 export async function flattenForm(bytes) {
   const d = await PDFDocument.load(bytes);
   try { d.getForm().flatten(); } catch { /* 양식 없음 */ }
-  return d.save();
+  return finalizeSave(d);
 }
 // 필드 개체(overlay type 'field') → 진짜 양식 필드 (flatten 뒤에 호출)
 export async function addFormFields(bytes, overlays) {
@@ -177,26 +179,37 @@ export async function addFormFields(bytes, overlays) {
     }
   }
   form.updateFieldAppearances(font);
-  return d.save();
+  return finalizeSave(d);
 }
 
 // 지정한 쪽을 그림으로 바꾼다 (교정 후 완전 삭제). pdf: pdf.js 문서
-export async function rasterizePages(bytes, pdf, idx, scale = 2.2, onProg) {
+// mos: {쪽번호: [{x,y,w,h,mosaic}]} 모자이크 영역(pt, 화면 기준 왼쪽 위 원점). 그림으로 만들 때 그 영역을 픽셀화한다
+export async function rasterizePages(bytes, pdf, idx, scale = 2.2, onProg, mos = null) {
   const src = await PDFDocument.load(bytes);
+  detachPageLinks(src, { strict: true });    // 링크·양식 칸을 따라 그림으로 바꿀 쪽 원본이 따라 복사되지 않게
   const out = await PDFDocument.create();
   const set = new Set(idx);
   const n = src.getPageCount();
+  // 그림으로 바꾸지 않는 쪽은 한 번에 복사한다 (공유 글꼴·그림을 한 벌만)
+  const keep = Array.from({ length: n }, (_, i) => i).filter(i => !set.has(i));
+  const copied = keep.length ? await out.copyPages(src, keep) : [];
+  let c = 0;
   for (let i = 0; i < n; i++) {
-    if (!set.has(i)) { const [p] = await out.copyPages(src, [i]); out.addPage(p); continue; }
+    if (!set.has(i)) { out.addPage(copied[c++]); continue; }
     onProg?.(i, n);
     const pg = await pdf.getPage(i + 1);
     const vp = pg.getViewport({ scale: 1 });
     const cv = await renderCanvas(pdf, i + 1, scale);
+    if (mos?.[i]?.length) {
+      const ctx = cv.getContext('2d');
+      for (const r of mos[i]) pixelate(ctx, r.x * scale, r.y * scale, r.w * scale, r.h * scale, mosaicTile(r.w, r.h, r.mosaic) * scale);
+    }
     const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
     cv.width = 0;
     const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
     const page = out.addPage([vp.width, vp.height]);
     page.drawImage(img, { x: 0, y: 0, width: vp.width, height: vp.height });
   }
-  return out.save();
+  relinkPageLinks(out);
+  return finalizeSave(out, {}, { strict: true });   // 닿지 않는 개체(고아 쪽 등)를 지우고, 실패하면 저장을 멈춘다
 }

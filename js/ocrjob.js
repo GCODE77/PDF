@@ -123,6 +123,14 @@ export async function startOcrJob(o) {
 }
 export const stopJob = j => { if (j.active) { j.stopReq = true; j.phase = '중지하는 중… 진행 중인 쪽까지 마무리합니다'; notify(); } };
 export const cancelJob = j => { if (j.active) { j.cancelReq = true; j.phase = '취소하는 중…'; notify(); } };
+// 교정·모자이크를 문서에 굽는 순간 호출: 원본을 읽은 글자가 나중에 가린 자리에 덧씌워지지 않게 그 문서의 작업을 취소하고 임시저장도 버린다
+export const REDACT_ABORT = '진행 중이던 글자 인식을 취소했습니다. 교정 후 다시 실행하세요';
+export function cancelForRedact(docId) {
+  const j = jobOf(docId);
+  if (!j) return false;
+  j.redactAbort = true; j.cancelReq = true; j.phase = '취소하는 중…'; notify();
+  return true;
+}
 
 function finish(job, status, msg) {
   job.active = false; job.status = status; job.msg = msg; job.endedAt = Date.now();
@@ -130,11 +138,12 @@ function finish(job, status, msg) {
 }
 
 async function run(job, o) {
-  let pdf = null, pool = null;
+  let pdf = null, pool = null, key = null;
   const results = new Map();
+  const redactStop = () => { finish(job, 'cancelled', REDACT_ABORT); toast(REDACT_ABORT, 'err'); if (key) cacheDel(key); };
   try {
     pdf = await D.openPdfjs(o.bytes);
-    const key = (await docKey(o.bytes, pdf.numPages)) + '|' + o.lang + '|';
+    key = (await docKey(o.bytes, pdf.numPages)) + '|' + o.lang + '|';
     job.phase = '이전 임시저장 확인 중…'; notify();
     const queue = [];
     for (const i of o.indices) {
@@ -160,6 +169,7 @@ async function run(job, o) {
       }));
       await pool.close(); pool = null;
     }
+    if (job.redactAbort) { redactStop(); return; }
     if (job.cancelReq) { finish(job, 'cancelled', `취소했습니다. 인식한 ${results.size}쪽은 임시저장되어 다음에 이어서 합니다`); toast(job.msg); return; }
     const list = [...results.values()].sort((a, b) => a.index - b.index);
     const nWords = list.reduce((a, r) => a + r.words.length, 0);
@@ -170,11 +180,19 @@ async function run(job, o) {
     }
     if (!nWords) { finish(job, 'done', '인식된 글자가 없습니다'); toast('인식된 글자가 없습니다', 'err'); cacheDel(key); return; }
     job.phase = '결과를 문서에 넣는 중…'; notify();
-    await S.applyToDoc(job.docId, bytes => core.addInvisibleText(bytes, list), { pages: pdf.numPages });
+    if (job.redactAbort) { redactStop(); return; }
+    // 적용 직전(문서 쪽 flush)에 교정이 구워지면 redactAbort 가 켜지므로 그때는 글자를 넣지 않는다
+    const abortIfRedacted = () => { if (job.redactAbort) throw Object.assign(new Error(REDACT_ABORT), { redactAbort: true }); };
+    await S.applyToDoc(job.docId, bytes => { abortIfRedacted(); return core.addInvisibleText(bytes, list); }, { pages: pdf.numPages, guard: abortIfRedacted });
     cacheDel(key);
+    if (job.redactAbort) {        // 결과를 넣은 직후 교정이 이어서 구워짐: 교정한 쪽의 인식 글자는 그 쪽을 그림으로 바꾸며 함께 지워진다
+      const m = '문자 인식 결과를 넣은 뒤 교정을 적용했습니다. 교정한 쪽의 인식 글자는 함께 지워졌습니다';
+      finish(job, 'done', m); toast(m, 'ok'); return;
+    }
     const doneMsg = job.stopReq ? `중지했습니다. ${list.length}쪽까지 문서에 적용했습니다 (나머지는 다시 시작하면 이어서 합니다)` : `완료: 글자 ${nWords}개를 인식했습니다. 이제 검색·복사가 가능합니다`;
     finish(job, 'done', doneMsg); toast(doneMsg, 'ok');
   } catch (e) {
+    if (e?.redactAbort || job.redactAbort) { redactStop(); return; }
     console.error(e);
     const m = String(e.message || e);
     finish(job, 'error', m + (results.size ? ` (인식한 ${results.size}쪽은 임시저장됨)` : ''));

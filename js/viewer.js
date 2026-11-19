@@ -1,6 +1,6 @@
 // 뷰어(페이지 표시 · 확대/축소) + 편집 개체(텍스트·메모·서명·이미지·형광펜·펜·가리기)
 import { S, $, $$, h, icon, emit, on, toast, uid, pickFiles } from './state.js';
-import { FS, LH, BASE, whiteToAlpha } from './pdfcore.js';
+import { FS, LH, BASE, whiteToAlpha, pixelate, mosaicTile, MOSAIC_LEVELS, MOSAIC_NOTE } from './pdfcore.js';
 import { editableLines, sampleRegion } from './layout.js';
 import { allFonts, GROUP_ORDER, cssFamily, loadDisplay, isLoaded, hasBold, measure, baseOf, addUserFont } from './textfonts.js';
 import * as D from './doc.js';
@@ -280,6 +280,7 @@ async function renderPage(i) {
     if (g !== p.gen) return;
     p.rendered = true;
     drawHighlights(i);
+    for (const o of S.overlays[i] || []) if (o.type === 'redact' && o.mosaic) { const el = objEl(o.id); if (el) mosaicPreview(el, o); }
     if (S.tool === 'edittext') buildEditLayer(i);
   } catch (e) {
     if (e?.name !== 'RenderingCancelledException') console.warn('렌더링 실패', e);
@@ -413,6 +414,7 @@ function styleObj(el, o) {
   } else {
     st.width = o.w * k + 'px'; st.height = o.h * k + 'px';
     if (o.type === 'whiteout' || o.type === 'highlight' || o.type === 'redact') st.background = (o.type === 'highlight' && o.ls) ? 'transparent' : o.color;
+    if (o.type === 'redact') mosaicPreview(el, o);
     if (o.type === 'highlight' && o.ls === 'underline') st.boxShadow = `inset 0 -${Math.max(1, 1.4 * k)}px 0 ${o.color}`;
     if (o.type === 'highlight' && o.ls === 'strike') st.background = `linear-gradient(to bottom, transparent 47%, ${o.color} 47%, ${o.color} 53%, transparent 53%)`;
     if (o.type === 'field') { st.border = '1.5px dashed #5258e4'; st.background = 'rgba(82,88,228,.10)'; el.dataset.label = (FIELD_LABEL[o.kind] || '칸') + ' · ' + (o.name || ''); }
@@ -641,7 +643,7 @@ function drawRect(e, i, ov) {
   e.preventDefault();
   const k = scale(), r = ov.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
   const tool0 = S.tool;
-  const box = h('div', { class: 'obj owhiteout draft', style: { left: sx + 'px', top: sy + 'px', background: tool0 === 'redact' ? '#000000aa' : tool0 === 'whiteout' ? S.style.wo : 'transparent', pointerEvents: 'none' } });
+  const box = h('div', { class: 'obj owhiteout draft', style: { left: sx + 'px', top: sy + 'px', background: tool0 === 'redact' ? (S.style.rmode === 'mosaic' ? 'repeating-conic-gradient(#8888 0 25%, #ccc8 0 50%) 0 0/8px 8px' : '#000000aa') : tool0 === 'whiteout' ? S.style.wo : 'transparent', pointerEvents: 'none' } });
   ov.append(box);
   ov.setPointerCapture(e.pointerId);
   const mv = ev => {
@@ -658,7 +660,7 @@ function drawRect(e, i, ov) {
     D.snap();
     const base = { id: uid(), x: Math.min(sx, x) / k, y: Math.min(sy, y) / k, w: Math.max(w, isLine ? 1 : w), h: Math.max(hh, isLine ? 1 : hh) };
     let o;
-    if (tool0 === 'redact') o = { ...base, type: 'redact', color: '#000000' };
+    if (tool0 === 'redact') o = { ...base, type: 'redact', color: '#000000', ...(S.style.rmode === 'mosaic' ? { mosaic: S.style.rlevel || 2 } : {}) };
     else if (tool0 === 'field') {
       const kind = S.style.fieldKind || 'text';
       const n = Object.values(S.overlays).flat().filter(q => q.type === 'field' && q.kind === kind).length + 1;
@@ -803,7 +805,7 @@ const HINTS = {
   underline: '밑줄 칠 글자를 드래그해서 선택하세요',
   strike: '취소선을 그을 글자를 드래그해서 선택하세요',
   shape: '문서 위에서 드래그해 그립니다 (사각형·원·선·화살표)',
-  redact: '지울 영역(개인정보 등)을 드래그해 검은 상자로 표시하세요. 표시 후 「교정 적용」을 눌러야 영구 삭제됩니다',
+  redact: '지울 영역(개인정보 등)을 드래그해 표시하세요. 표시 후 「교정 적용」을 눌러야 영구 삭제됩니다',
   field: '입력칸이 들어갈 자리를 드래그하세요. 칸 종류는 「양식 만들기」에서 바꿀 수 있습니다',
   edittext: '고칠 글자를 누르세요. Enter로 확정하면 글꼴·크기·색·밑줄을 바꾸는 막대가 나타납니다 (Esc 취소 · 모두 지우면 삭제)',
 };
@@ -823,6 +825,34 @@ function fontPicker(cur, set) {
     try { const d = await addUserFont(f); set(d.id); } catch { toast('글꼴 파일을 읽을 수 없습니다', 'err'); }
   };
   return sel;
+}
+// 교정의 가리는 방식(검은 상자 / 모자이크)과 모자이크 세기
+const coverBar = (mode, lv, set) => {
+  const out = [h('div', { class: 'seg inline', title: '가리는 방식' }, [['box', '검은 상자'], ['mosaic', '모자이크']].map(([k, t]) => h('button', { class: 'btn small' + (k === mode ? ' primary' : ''), title: k === 'mosaic' ? MOSAIC_NOTE : '', 'aria-pressed': String(k === mode), onclick: () => set(k, lv) }, t)))];
+  if (mode === 'mosaic') out.push(h('div', { class: 'seg inline', title: '모자이크 세기' }, MOSAIC_LEVELS.slice(1).map((l, j) => h('button', { class: 'btn small' + (j + 1 === lv ? ' primary' : ''), onclick: () => set('mosaic', j + 1) }, l.label))));
+  return out;
+};
+// 모자이크 미리보기: 화면의 쪽 그림에서 그 영역을 떠서 적용 때와 같은 칸 크기로 픽셀화해 보여 준다(화면 전용, 저장 때는 다시 계산)
+function mosaicPreview(el, o) {
+  let cv = el.querySelector('canvas.mzc');
+  el.classList.toggle('mz', !!o.mosaic);
+  if (!o.mosaic) { cv?.remove(); return; }
+  el.style.background = '';
+  const p = info[+el.dataset.page];
+  if (!p || !p.canvas.width) { cv?.remove(); return; }
+  if (!cv) { cv = h('canvas', { class: 'mzc' }); el.prepend(cv); }
+  const k = p.canvas.width / p.w;                         // 쪽 그림의 pt당 픽셀
+  const W = Math.max(1, Math.round(o.w * k)), H = Math.max(1, Math.round(o.h * k));
+  if (W * H > 16e6) { cv.remove(); return; }
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#9aa0a6'; ctx.fillRect(0, 0, W, H);
+  // 쪽 안에 들어오는 부분만 복사하고 픽셀화한다 (쪽 밖은 회색)
+  const x0 = Math.max(0, o.x), y0 = Math.max(0, o.y), x1 = Math.min(p.w, o.x + o.w), y1 = Math.min(p.h, o.y + o.h);
+  if (x1 <= x0 || y1 <= y0) return;
+  const dx = (x0 - o.x) * k, dy = (y0 - o.y) * k, dw = (x1 - x0) * k, dh = (y1 - y0) * k;
+  ctx.drawImage(p.canvas, x0 * k, y0 * k, dw, dh, dx, dy, dw, dh);
+  pixelate(ctx, dx, dy, dw, dh, mosaicTile(o.w, o.h, o.mosaic) * k);
 }
 const shapeKinds = (cur, set) => h('div', { class: 'seg inline' }, [['rect', '사각형'], ['ellipse', '원'], ['line', '선'], ['arrow', '화살표']].map(([k, t]) => h('button', { class: 'btn small' + (k === cur ? ' primary' : ''), onclick: () => set(k) }, t)));
 function swatches(list, cur, set) {
@@ -855,6 +885,7 @@ function updateBar() {
       parts.push(swatches(WO_PALETTE, o.color, live(c => { o.color = c; S.style.wo = c; })));
       parts.push(h('button', { class: 'btn small', onclick: () => applyAllPages(o) }, '모든 페이지에 적용'));
     } else if (o.type === 'redact') {
+      parts.push(...coverBar(o.mosaic ? 'mosaic' : 'box', o.mosaic || S.style.rlevel || 2, (m, l) => live(() => { o.mosaic = m === 'mosaic' ? l : undefined; S.style.rmode = m; S.style.rlevel = l; })()));
       parts.push(h('button', { class: 'btn small primary', onclick: () => import('./tools2.js').then(m => m.redactApplyDialog()) }, '교정 적용 (영구 삭제)'));
     } else if (o.type === 'field') {
       parts.push(h('select', { class: 'inp small', 'aria-label': '칸 종류', onchange: e => live(v => { o.kind = v; S.style.fieldKind = v; })(e.target.value) }, ...Object.entries(FIELD_LABEL).map(([k, t]) => h('option', { value: k, selected: k === o.kind }, t))));
@@ -888,7 +919,7 @@ function updateBar() {
       parts.push(shapeKinds(S.style.shape || 'rect', v => { S.style.shape = v; updateBar(); }));
       parts.push(swatches(PALETTE, S.style.ink, c => { S.style.ink = c; updateBar(); }));
       parts.push(stepper('굵기', S.style.inkW, 1, 12, 1, v => { S.style.inkW = v; updateBar(); }));
-    } else if (S.tool === 'redact') parts.push(h('button', { class: 'btn small primary', onclick: () => import('./tools2.js').then(m => m.redactApplyDialog()) }, '교정 적용 (영구 삭제)'), h('button', { class: 'btn small', onclick: () => import('./tools2.js').then(m => m.redactSearchDialog()) }, '검색해서 표시'));
+    } else if (S.tool === 'redact') parts.push(...coverBar(S.style.rmode || 'box', S.style.rlevel || 2, (m, l) => { S.style.rmode = m; S.style.rlevel = l; updateBar(); }), h('button', { class: 'btn small primary', onclick: () => import('./tools2.js').then(m => m.redactApplyDialog()) }, '교정 적용 (영구 삭제)'), h('button', { class: 'btn small', onclick: () => import('./tools2.js').then(m => m.redactSearchDialog()) }, '검색해서 표시'));
     else if (S.tool === 'pen') {
       parts.push(swatches(PALETTE, S.style.ink, c => { S.style.ink = c; updateBar(); }));
       parts.push(stepper('굵기', S.style.inkW, 1, 20, 1, v => { S.style.inkW = v; updateBar(); }));

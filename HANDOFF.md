@@ -1,6 +1,6 @@
 # PDF 공작소 — 세션 인수인계 (HANDOFF)
 
-> 마지막 정리: 2026-11-20 · 현재 버전 **v1.9.0** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
+> 마지막 정리: 2026-11-24 · 현재 버전 **v1.9.1** · 이 문서만 읽어도 이어서 작업할 수 있도록 작성.
 > 사용자와의 대화는 **항상 한국어**로 한다(영어로 답했다가 지적받은 적 있음). 사용자는 비개발자 관점에서 화면·동작을 캡처로 알려 주는 방식으로 피드백한다.
 
 ## 1. 한눈에
@@ -34,6 +34,7 @@
 | 1.8.0 | **저장 완료 창**(`state.js savedDialog`, `desktop/main.js` will-download 추적·`open-path`/`show-in-folder`, 열기 허용 목록), **표 인식 개선**(`layout.js` gridLines로 4.5pt 틈새 열 병합, 폼 XObject 행렬 처리, 겹친 표는 가장 작은 표 우선, 엑셀 열·병합 축소), **「애매한 표는 그림으로」**(`tableConfidence`, `opts.tableImage`). 설계·측정 기록: research.md, plan.md, tests/pdf/측정기록.md |
 | 1.8.1 | 홈 최근 파일: 위쪽 「전체 지우기」(별표는 기본 유지)와 「선택」(체크박스 선택 삭제, `home.js` selecting/selected, `recent.js` removeMany·clearRecent(includeStar)) |
 | 1.9.0 | **모자이크 가리기**(교정 도구의 가리는 방식 선택, `pdfcore.js` pixelate·mosaicTile), **저장 때 원본 잔존 수정**(`finalizeSave`·`pruneUnreachable`·`detachPageLinks`로 모든 저장 경로 정리, 쪽 삭제·추출·순서·합치기·교정에서 고아 쪽이 남던 문제), OCR·교정 경합 잠금(`D.withDocLock`), 「글자만 제거」 기본값을 그림 방식으로 |
+| 1.9.1 | **복합기 스캔 PDF(CCITT·JBIG2) 글자·표가 안 보이던 문제 수정**: pdf.js 6.x 는 해독기를 wasm 으로 따로 받아 쓰므로 `vendor/pdfjs/wasm/`(jbig2·openjpeg·qcms)를 추가하고 `doc.js`에서 `wasmUrl`·`cMapUrl`·`standardFontDataUrl`을 절대 주소(`PJS`)로 넘김(상대 경로는 작업 스레드 기준으로 풀려 못 찾음) |
 
 ## 3. 코드 지도 (`js/`)
 - `main.js` 진입점. **문서 탭 관리**(`docs[]`, `activeId`, `stashActive/switchTo/closeTab`), `S.docId()`, `S.applyToDoc(docId, fn, {pages})`(보고 있지 않은 탭에도 결과 적용), 홈 카드, 저장/공유, 기본 앱 안내 대화상자, 단축키

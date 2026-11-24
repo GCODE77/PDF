@@ -6,6 +6,7 @@ This app bundles the following open-source components in `vendor/`. Each keeps i
 |---|---|
 | pdf-lib / pdf-lib-plus-encrypt | MIT |
 | PDF.js (Mozilla) | Apache-2.0 |
+| PDF.js 이미지 해독기 (vendor/pdfjs/wasm: JBIG2·OpenJPEG·qcms, 스캔 PDF의 CCITT·JBIG2·JPEG2000 그림 표시용) | JBIG2: BSD-3-Clause (PDFium), OpenJPEG: BSD-2-Clause, qcms: MIT, 래퍼: Apache-2.0 (각 라이선스 파일은 같은 폴더) |
 | Tesseract.js, tesseract.js-core, traineddata (kor, eng) | Apache-2.0 |
 | JSZip | MIT or GPL-3.0 (used under MIT) |
 | fontkit (@pdf-lib/fontkit) | MIT |

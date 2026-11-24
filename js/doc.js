@@ -12,14 +12,17 @@ export async function getPdfjs() {
   return pdfjs;
 }
 
+// pdf.js 작업 스레드가 읽는 데이터 폴더(글꼴·CMap·스캔 그림 해독기 wasm). 상대 경로는 작업 스레드 기준으로 풀려 못 찾으므로 절대 주소로 만든다
+const PJS = new URL('vendor/pdfjs/', document.baseURI).href;
+
 export const killPdf = p => { try { (p.loadingTask?.destroy ? p.loadingTask.destroy() : p.destroy?.()); } catch { /* 이미 닫힘 */ } };
 
 export async function openPdfjs(bytes, password) {
   const lib = await getPdfjs();
   return lib.getDocument({
     data: bytes.slice(), password, fontExtraProperties: true,
-    cMapUrl: 'vendor/pdfjs/cmaps/', cMapPacked: true,
-    standardFontDataUrl: 'vendor/pdfjs/standard_fonts/', isEvalSupported: false,
+    cMapUrl: PJS + 'cmaps/', cMapPacked: true,
+    standardFontDataUrl: PJS + 'standard_fonts/', wasmUrl: PJS + 'wasm/', isEvalSupported: false,
   }).promise;
 }
 
@@ -55,8 +58,8 @@ export async function openFromBytes(bytes, name) {
   for (;;) {
     try {
       pdf = await lib.getDocument({
-        data: bytes.slice(), password: pw, fontExtraProperties: true, cMapUrl: 'vendor/pdfjs/cmaps/', cMapPacked: true,
-        standardFontDataUrl: 'vendor/pdfjs/standard_fonts/', isEvalSupported: false,
+        data: bytes.slice(), password: pw, fontExtraProperties: true, cMapUrl: PJS + 'cmaps/', cMapPacked: true,
+        standardFontDataUrl: PJS + 'standard_fonts/', wasmUrl: PJS + 'wasm/', isEvalSupported: false,
       }).promise;
       break;
     } catch (e) {

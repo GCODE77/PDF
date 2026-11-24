@@ -1,5 +1,5 @@
 {
- "version": "1.9.0",
- "notes": "모자이크 가리기 추가, 교정·쪽 삭제·추출 시 원본이 파일에 남던 문제 수정",
+ "version": "1.9.1",
+ "notes": "복합기로 스캔한 PDF의 글자·표가 안 보이던 문제 수정",
  "setup": "https://github.com/GCODE77/PDF/releases/latest/download/PDF-Gongjakso-Setup.exe"
 }
